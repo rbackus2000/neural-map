@@ -216,13 +216,13 @@ function ChatPanel({ node, mapData, onClose, onNavigate }) {
             <button onClick={onClose} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.4)", width: 28, height: 28, borderRadius: 6, cursor: "pointer", fontSize: 14, fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
           </div>
         </div>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "#fff", marginBottom: 6, lineHeight: 1.3 }}>{node.title}</div>
-        <p style={{ fontSize: 10, lineHeight: 1.5, color: "rgba(255,255,255,0.45)", margin: 0 }}>
+        <div style={{ fontSize: 16, fontWeight: 600, color: "#fff", marginBottom: 6, lineHeight: 1.3 }}>{node.title}</div>
+        <p style={{ fontSize: 12, lineHeight: 1.5, color: "rgba(255,255,255,0.45)", margin: 0 }}>
           {node.summary?.slice(0, 160)}{node.summary?.length > 160 ? "…" : ""}
         </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 8 }}>
           {node.tags?.map(tag => (
-            <span key={tag} style={{ background: `${nodeColor}12`, border: `1px solid ${nodeColor}25`, borderRadius: 3, padding: "1px 6px", fontSize: 8, color: nodeColor }}>{tag}</span>
+            <span key={tag} style={{ background: `${nodeColor}12`, border: `1px solid ${nodeColor}25`, borderRadius: 3, padding: "2px 7px", fontSize: 10, color: nodeColor }}>{tag}</span>
           ))}
         </div>
         {connected.length > 0 && (
@@ -265,7 +265,7 @@ function ChatPanel({ node, mapData, onClose, onNavigate }) {
               background: msg.role === "user" ? `${nodeColor}20` : "rgba(255,255,255,0.04)",
               border: `1px solid ${msg.role === "user" ? `${nodeColor}35` : "rgba(255,255,255,0.06)"}`,
               borderRadius: msg.role === "user" ? "12px 12px 4px 12px" : "12px 12px 12px 4px",
-              padding: "10px 14px", fontSize: 12, lineHeight: 1.65,
+              padding: "10px 14px", fontSize: 13, lineHeight: 1.65,
               color: msg.role === "user" ? "#fff" : "rgba(255,255,255,0.8)",
               whiteSpace: "pre-wrap", wordBreak: "break-word",
             }}>{msg.content}</div>
@@ -450,6 +450,7 @@ export default function NeuralMapApp() {
   const [activeFilter, setActiveFilter] = useState(null);
   const [dimensions, setDimensions] = useState({ w: 900, h: 700 });
   const [error, setError] = useState(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const animFrameRef = useRef(null);
   const nodesRef = useRef([]);
   const panRef = useRef({ x: 0, y: 0, startX: 0, startY: 0, isPanning: false, scale: 1 });
@@ -521,7 +522,7 @@ export default function NeuralMapApp() {
     const initNodes = mapData.nodes.map((node, i) => {
       const angle = seededRandom(i * 137.5) * Math.PI * 2;
       const sig = node.significance || 3;
-      const radius = (sig >= 4 ? 40 : 80) + seededRandom(i * 73 + 11) * Math.min(w, h) * 0.34;
+      const radius = (sig >= 4 ? 60 : 120) + seededRandom(i * 73 + 11) * Math.min(w, h) * 0.42;
       return { ...node, x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius, pulsePhase: seededRandom(i * 42) * Math.PI * 2 };
     });
 
@@ -531,16 +532,16 @@ export default function NeuralMapApp() {
           const dx = initNodes[j].x - initNodes[i].x;
           const dy = initNodes[j].y - initNodes[i].y;
           const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          if (dist < 22) {
-            const force = (22 - dist) / dist * 0.35;
+          if (dist < 80) {
+            const force = (80 - dist) / dist * 0.5;
             initNodes[i].x -= dx * force; initNodes[i].y -= dy * force;
             initNodes[j].x += dx * force; initNodes[j].y += dy * force;
           }
         }
-        initNodes[i].x += (cx - initNodes[i].x) * 0.006;
-        initNodes[i].y += (cy - initNodes[i].y) * 0.006;
-        initNodes[i].x = Math.max(30, Math.min(w - 30, initNodes[i].x));
-        initNodes[i].y = Math.max(30, Math.min(h - 30, initNodes[i].y));
+        initNodes[i].x += (cx - initNodes[i].x) * 0.002;
+        initNodes[i].y += (cy - initNodes[i].y) * 0.002;
+        initNodes[i].x = Math.max(50, Math.min(w - 50, initNodes[i].x));
+        initNodes[i].y = Math.max(50, Math.min(h - 50, initNodes[i].y));
       }
       mapData.connections.forEach(([aId, bId]) => {
         const na = initNodes.find(n => n.id === aId);
@@ -549,7 +550,7 @@ export default function NeuralMapApp() {
           const dx = nb.x - na.x;
           const dy = nb.y - na.y;
           const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const force = (dist - 90) / dist * 0.012;
+          const force = (dist - 140) / dist * 0.01;
           na.x += dx * force; na.y += dy * force;
           nb.x -= dx * force; nb.y -= dy * force;
         }
@@ -698,7 +699,7 @@ export default function NeuralMapApp() {
     const y = (my - pan.y) / pan.scale;
     let closest = null;
     let closestDist = Infinity;
-    const hitRadius = 20 / pan.scale;
+    const hitRadius = 24 / pan.scale;
     for (let i = 0; i < nodesRef.current.length; i++) {
       const n = nodesRef.current[i];
       const dx = x - n.x;
@@ -779,23 +780,27 @@ export default function NeuralMapApp() {
       {appState === "map" && mapData && (
         <>
           {/* Header */}
+          {!isFullscreen && (
           <div style={{ padding: "12px 16px", borderBottom: "1px solid rgba(139,168,160,0.1)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, zIndex: 40, background: "rgba(5,5,8,0.95)", backdropFilter: "blur(10px)", flexWrap: "wrap", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button onClick={() => { setAppState("landing"); setMapData(null); setSelectedNode(null); }}
-                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, padding: "4px 10px", fontSize: 9, color: "rgba(255,255,255,0.4)", cursor: "pointer", fontFamily: "inherit" }}>← New Map</button>
+                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, padding: "6px 12px", fontSize: 11, color: "rgba(255,255,255,0.4)", cursor: "pointer", fontFamily: "inherit", minHeight: 32 }}>← New Map</button>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: REGULAR_COLOR, boxShadow: `0 0 10px ${REGULAR_COLOR}60`, animation: "headerPulse 2s ease-in-out infinite" }} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: REGULAR_COLOR, letterSpacing: 2, textTransform: "uppercase" }}>{mapData.title || currentTopic}</span>
-              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>{mapData.nodes.length} nodes · {mapData.connections.length} synapses</span>
+              <span style={{ fontSize: 15, fontWeight: 600, color: REGULAR_COLOR, letterSpacing: 2, textTransform: "uppercase" }}>{mapData.title || currentTopic}</span>
+              <span style={{ fontSize: 12, color: "rgba(255,255,255,0.25)" }}>{mapData.nodes.length} nodes · {mapData.connections.length} synapses</span>
             </div>
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
               {Object.entries(mapData.categories).map(([key, { color, label }]) => (
                 <button key={key} onClick={() => setActiveFilter(activeFilter === key ? null : key)}
-                  style={{ background: activeFilter === key ? color + "25" : "rgba(255,255,255,0.03)", border: `1px solid ${activeFilter === key ? color + "60" : "rgba(255,255,255,0.06)"}`, borderRadius: 20, padding: "3px 9px", fontSize: 9, color: activeFilter === key ? color : "rgba(255,255,255,0.4)", cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s" }}>
-                  <span style={{ display: "inline-block", width: 5, height: 5, borderRadius: "50%", background: color, marginRight: 4, verticalAlign: "middle" }} />{label}
+                  style={{ background: activeFilter === key ? color + "25" : "rgba(255,255,255,0.03)", border: `1px solid ${activeFilter === key ? color + "60" : "rgba(255,255,255,0.06)"}`, borderRadius: 20, padding: "6px 14px", fontSize: 11, minHeight: 32, color: activeFilter === key ? color : "rgba(255,255,255,0.4)", cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s" }}>
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: color, marginRight: 5, verticalAlign: "middle" }} />{label}
                 </button>
               ))}
+              <button onClick={() => setIsFullscreen(true)}
+                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, padding: "6px 12px", fontSize: 11, color: "rgba(255,255,255,0.4)", cursor: "pointer", fontFamily: "inherit", minHeight: 32, transition: "all 0.2s" }}>⛶ Fullscreen</button>
             </div>
           </div>
+          )}
 
           {/* Canvas */}
           <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
@@ -804,6 +809,12 @@ export default function NeuralMapApp() {
               onMouseDown={handleMouseDown} onMouseUp={() => { panRef.current.isPanning = false; }}
               onMouseLeave={() => { panRef.current.isPanning = false; setHoveredNode(null); }}
             />
+
+            {/* Fullscreen exit */}
+            {isFullscreen && (
+              <button onClick={() => setIsFullscreen(false)}
+                style={{ position: "absolute", top: 16, left: 16, zIndex: 50, background: "rgba(5,5,8,0.85)", backdropFilter: "blur(10px)", border: "1px solid rgba(139,168,160,0.2)", borderRadius: 8, padding: "8px 14px", fontSize: 11, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s" }}>← Exit Fullscreen</button>
+            )}
 
             {/* Tooltip */}
             {hoveredNode && !selectedNode && (() => {
