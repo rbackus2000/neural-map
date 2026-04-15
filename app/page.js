@@ -586,9 +586,204 @@ function LoadingScreen({ topic }) {
 
 // ─── LANDING SCREEN ─────────────────────────────────────────────────────────
 
+function JarvisChat({ onClose }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const voiceModeRef = useRef(false);
+  const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const audioRef = useRef(null);
+  const audioUrlRef = useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  const speakText = useCallback(async (text) => {
+    try {
+      const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      audioUrlRef.current = url;
+      const audio = new Audio();
+      audioRef.current = audio;
+      audio.onplay = () => setIsSpeaking(true);
+      audio.onended = () => { setIsSpeaking(false); URL.revokeObjectURL(url); audioUrlRef.current = null; audioRef.current = null; };
+      audio.onerror = () => { setIsSpeaking(false); URL.revokeObjectURL(url); audioUrlRef.current = null; audioRef.current = null; };
+      audio.src = url;
+      audio.play().catch(() => {});
+    } catch {}
+  }, []);
+
+  const stopSpeaking = useCallback(() => {
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (audioUrlRef.current) { URL.revokeObjectURL(audioUrlRef.current); audioUrlRef.current = null; }
+    setIsSpeaking(false);
+  }, []);
+
+  const startListening = useCallback(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    stopSpeaking();
+    const r = new SR();
+    r.continuous = true; r.interimResults = true; r.lang = "en-US";
+    r.onstart = () => setIsListening(true);
+    r.onresult = (e) => { setInput(Array.from(e.results).map(r => r[0].transcript).join("")); };
+    r.onerror = () => setIsListening(false);
+    r.onend = () => setIsListening(false);
+    recognitionRef.current = r;
+    r.start();
+  }, [stopSpeaking]);
+
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current) { recognitionRef.current.stop(); recognitionRef.current = null; }
+    setIsListening(false);
+    voiceModeRef.current = true;
+  }, []);
+
+  const sendMessage = async (overrideText) => {
+    const msgText = overrideText || input.trim();
+    if (!msgText || isLoading) return;
+    setInput("");
+    setMessages(prev => [...prev, { role: "user", content: msgText }]);
+    setIsLoading(true);
+    const isVoice = voiceModeRef.current;
+    try {
+      const history = messages.map(m => ({ role: m.role, content: m.content }));
+      history.push({ role: "user", content: msgText });
+      const data = await callClaude({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: isVoice ? 500 : 1500,
+        system: `You are JARVIS, an advanced AI assistant with expertise across all domains — science, history, technology, philosophy, current events, and more. You speak with confidence and precision.
+
+INSTRUCTIONS:
+- Be knowledgeable, direct, and engaging
+- Reference specific facts, dates, names, and details
+- Keep responses concise but substantive
+${isVoice ? "- This is a VOICE conversation. Keep your answer to 2-3 sentences. Your LAST sentence MUST be a direct question asking the user what they want to explore next." : "- CRITICAL RULE: Your final sentence MUST be a direct question to the user. Not rhetorical — a real question they can answer. Like: 'Want me to explain how that works?' or 'Should I tell you the surprising part?'"}`,
+        messages: history,
+      });
+      const text = data.content?.filter(b => b.type === "text").map(b => b.text).join("\n") || "Unable to process that request.";
+      setMessages(prev => [...prev, { role: "assistant", content: text }]);
+      if (isVoice) speakText(text);
+    } catch (err) {
+      setMessages(prev => [...prev, { role: "assistant", content: `Error: ${err.message}` }]);
+    }
+    setIsLoading(false);
+  };
+
+  const prevListeningRef = useRef(false);
+  useEffect(() => {
+    if (prevListeningRef.current && !isListening && voiceModeRef.current && input.trim()) {
+      const timer = setTimeout(() => sendMessage(input.trim()), 200);
+      return () => clearTimeout(timer);
+    }
+    prevListeningRef.current = isListening;
+  }, [isListening]);
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); voiceModeRef.current = false; sendMessage(); }
+  };
+
+  return (
+    <div style={{
+      position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+      width: "90%", maxWidth: 560, height: "70vh", maxHeight: 640,
+      background: J.bgPanel, backdropFilter: "blur(30px)",
+      border: `1px solid ${J.cyan}20`, display: "flex", flexDirection: "column",
+      zIndex: 60, boxShadow: `0 0 60px rgba(0,0,0,0.6), 0 0 30px ${J.cyanGlow}`,
+    }}>
+      <ScanLine />
+      <HudCorner position="tl" color={J.cyan} />
+      <HudCorner position="tr" color={J.cyan} />
+      <HudCorner position="bl" color={J.cyan} />
+      <HudCorner position="br" color={J.cyan} />
+
+      {/* Header */}
+      <div style={{ padding: "14px 18px", borderBottom: `1px solid ${J.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, position: "relative", zIndex: 3 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 3, height: 16, background: J.cyan, boxShadow: `0 0 8px ${J.cyanGlow}` }} />
+          <span style={{ fontSize: 11, fontFamily: J.fontDisplay, color: J.cyan, letterSpacing: 4, fontWeight: 700 }}>JARVIS // GENERAL</span>
+        </div>
+        <button onClick={() => { stopSpeaking(); onClose(); }} style={{ background: "rgba(0,229,255,0.04)", border: `1px solid ${J.border}`, color: J.cyan, width: 30, height: 30, borderRadius: 2, cursor: "pointer", fontSize: 15, fontFamily: J.fontMono, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+      </div>
+
+      {/* Messages */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px", display: "flex", flexDirection: "column", gap: 12, position: "relative", zIndex: 3 }}>
+        {messages.length === 0 && (
+          <div style={{ padding: "30px 0", textAlign: "center" }}>
+            <div style={{ fontSize: 11, fontFamily: J.fontDisplay, color: J.textDim, letterSpacing: 3, marginBottom: 8 }}>JARVIS ONLINE</div>
+            <div style={{ fontSize: 13, fontFamily: J.fontBody, color: J.textMid, lineHeight: 1.6 }}>Ask me anything — science, history, tech,<br />philosophy, current events, or anything else.</div>
+          </div>
+        )}
+        {messages.map((msg, i) => (
+          <div key={i} style={{ alignSelf: msg.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%" }}>
+            {msg.role === "assistant" && <div style={{ fontSize: 9, fontFamily: J.fontDisplay, color: J.cyan, marginBottom: 4, letterSpacing: 3 }}>JARVIS</div>}
+            <div style={{
+              background: msg.role === "user" ? `${J.cyan}15` : "rgba(0,229,255,0.04)",
+              border: `1px solid ${msg.role === "user" ? `${J.cyan}30` : J.border}`,
+              borderRadius: 2, padding: "11px 15px", fontSize: 13, lineHeight: 1.7,
+              fontFamily: J.fontBody, color: msg.role === "user" ? "#e0f0ff" : J.text,
+              whiteSpace: "pre-wrap", wordBreak: "break-word",
+            }}>{msg.content}</div>
+          </div>
+        ))}
+        {isLoading && (
+          <div style={{ alignSelf: "flex-start" }}>
+            <div style={{ fontSize: 9, fontFamily: J.fontDisplay, color: J.cyan, marginBottom: 4, letterSpacing: 3 }}>JARVIS</div>
+            <div style={{ background: "rgba(0,229,255,0.04)", border: `1px solid ${J.border}`, borderRadius: 2, padding: "13px 18px", display: "flex", gap: 6, alignItems: "center" }}>
+              {[0,1,2].map(j => <div key={j} style={{ width: 6, height: 6, background: J.cyan, animation: `jarvisPulse 1.2s ease-in-out ${j*0.15}s infinite` }} />)}
+              <span style={{ fontSize: 10, fontFamily: J.fontMono, color: J.textDim, marginLeft: 6, letterSpacing: 1 }}>PROCESSING...</span>
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Speaking indicator */}
+      {isSpeaking && (
+        <div style={{ padding: "8px 18px", borderTop: `1px solid ${J.cyan}20`, display: "flex", alignItems: "center", gap: 8, background: `${J.cyan}08`, position: "relative", zIndex: 3 }}>
+          <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+            {[0,1,2,3,4].map(i => <div key={i} style={{ width: 3, height: 8 + Math.sin(i * 1.2) * 6, background: J.cyan, animation: `voiceBar 0.8s ease-in-out ${i * 0.1}s infinite alternate`, borderRadius: 1 }} />)}
+          </div>
+          <span style={{ fontSize: 9, fontFamily: J.fontDisplay, color: J.cyan, letterSpacing: 3 }}>JARVIS // SPEAKING</span>
+          <button onClick={stopSpeaking} style={{ marginLeft: "auto", background: "rgba(255,0,110,0.1)", border: `1px solid rgba(255,0,110,0.3)`, borderRadius: 2, padding: "3px 10px", fontSize: 9, fontFamily: J.fontDisplay, color: J.magenta, cursor: "pointer", letterSpacing: 2 }}>STOP</button>
+        </div>
+      )}
+
+      {/* Input */}
+      <div style={{ padding: "14px 18px", borderTop: `1px solid ${J.border}`, flexShrink: 0, position: "relative", zIndex: 3 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", background: "rgba(0,229,255,0.03)", border: `1px solid ${isListening ? J.cyan + "50" : J.border}`, borderRadius: 2, padding: "4px 4px 4px 14px", transition: "all 0.3s", boxShadow: isListening ? `0 0 20px ${J.cyan}15` : "none" }}>
+          <textarea ref={inputRef} value={input} onChange={e => { setInput(e.target.value); voiceModeRef.current = false; }} onKeyDown={handleKeyDown}
+            placeholder={isListening ? "Listening..." : "Ask JARVIS anything..."} rows={1}
+            style={{ flex: 1, background: "transparent", border: "none", color: isListening ? J.cyan : "#e0f0ff", fontSize: 13, fontFamily: J.fontBody, fontWeight: 500, resize: "none", outline: "none", padding: "8px 0", maxHeight: 80, lineHeight: 1.5 }}
+          />
+          <button onClick={isListening ? stopListening : startListening} disabled={isLoading}
+            style={{ background: isListening ? J.cyan : "rgba(0,229,255,0.06)", border: "none", borderRadius: 2, width: 38, height: 38, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s", flexShrink: 0, boxShadow: isListening ? `0 0 16px ${J.cyan}50` : "none", animation: isListening ? "micPulse 1.5s ease-in-out infinite" : "none" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isListening ? "#000" : "rgba(0,229,255,0.5)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="1" width="6" height="12" rx="3" /><path d="M19 10v2a7 7 0 01-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+          </button>
+          <button onClick={() => { voiceModeRef.current = false; sendMessage(); }} disabled={isLoading || !input.trim()}
+            style={{ background: input.trim() ? J.cyan : "rgba(0,229,255,0.06)", border: "none", borderRadius: 2, width: 38, height: 38, cursor: input.trim() ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s", flexShrink: 0, boxShadow: input.trim() ? `0 0 12px ${J.cyanGlow}` : "none" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={input.trim() ? "#000" : "rgba(0,229,255,0.2)"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LandingScreen({ onGenerate }) {
   const [input, setInput] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [showJarvis, setShowJarvis] = useState(false);
 
   const handleSubmit = () => {
     if (input.trim()) onGenerate(input.trim());
@@ -689,13 +884,30 @@ function LandingScreen({ onGenerate }) {
           ))}
         </div>
 
+        {/* Ask JARVIS button */}
+        <div style={{ marginTop: 32, display: "flex", justifyContent: "center" }}>
+          <button onClick={() => setShowJarvis(true)}
+            style={{ background: "rgba(0,229,255,0.04)", border: `1px solid ${J.cyan}30`, borderRadius: 2, padding: "12px 28px", fontSize: 12, fontFamily: J.fontDisplay, fontWeight: 700, color: J.cyan, cursor: "pointer", letterSpacing: 3, transition: "all 0.2s", display: "flex", alignItems: "center", gap: 10 }}
+            onMouseEnter={e => { e.currentTarget.style.background = `rgba(0,229,255,0.1)`; e.currentTarget.style.boxShadow = `0 0 20px ${J.cyanGlow}`; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "rgba(0,229,255,0.04)"; e.currentTarget.style.boxShadow = "none"; }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={J.cyan} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="1" width="6" height="12" rx="3" /><path d="M19 10v2a7 7 0 01-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+            ASK JARVIS
+          </button>
+        </div>
+
         {/* Bottom status bar */}
-        <div style={{ marginTop: 48, display: "flex", justifyContent: "center", gap: 24, opacity: 0.3 }}>
+        <div style={{ marginTop: 32, display: "flex", justifyContent: "center", gap: 24, opacity: 0.3 }}>
           {["STATUS: READY", "AI: ONLINE", "v1.0.0"].map((s, i) => (
             <span key={i} style={{ fontSize: 9, fontFamily: J.fontMono, color: J.cyan, letterSpacing: 2 }}>{s}</span>
           ))}
         </div>
       </div>
+
+      {/* JARVIS Chat Overlay */}
+      {showJarvis && <JarvisChat onClose={() => setShowJarvis(false)} />}
     </div>
   );
 }
