@@ -88,6 +88,28 @@ async function callClaude(body) {
   return res.json();
 }
 
+async function webSearch(query) {
+  try {
+    const res = await fetch("/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.results;
+  } catch {
+    return null;
+  }
+}
+
+function needsWebSearch(text) {
+  const lower = text.toLowerCase();
+  const currentTerms = /\b(today|latest|recent|current|now|2024|2025|2026|this week|this month|this year|right now|breaking|new|update|price of|stock|weather|score|who won|election|released)\b/;
+  const searchTerms = /\b(search|look up|find|google|what is the|how much|who is|where is|when did|news about)\b/;
+  return currentTerms.test(lower) || searchTerms.test(lower);
+}
+
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 
 function seededRandom(seed) {
@@ -315,6 +337,16 @@ function ChatPanel({ node, mapData, onClose, onNavigate }) {
     setIsLoading(true);
 
     try {
+      // Check if we need web search
+      let searchContext = "";
+      if (needsWebSearch(msgText)) {
+        const results = await webSearch(msgText + " " + node.title);
+        if (results && results.length > 0) {
+          searchContext = "\n\nWEB SEARCH RESULTS:\n" +
+            results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.description}\n   Source: ${r.url}`).join("\n");
+        }
+      }
+
       const history = messages.map(m => ({ role: m.role, content: m.content }));
       history.push({ role: "user", content: msgText });
 
@@ -323,7 +355,8 @@ function ChatPanel({ node, mapData, onClose, onNavigate }) {
         model: "claude-sonnet-4-20250514",
         max_tokens: isVoice ? 500 : 1000,
         system: buildChatSystemPrompt(node, connected, mapData.categories, mapData.title)
-          + (isVoice ? "\n- This is a VOICE conversation. Keep your answer to 2-3 sentences max. Your LAST sentence MUST be a direct question asking the user what they want to explore next. Not rhetorical — a real question they answer. Like: 'Want me to dive into how that changed everything?' or 'Should I tell you the surprising part about what happened next?'" : ""),
+          + (isVoice ? "\n- This is a VOICE conversation. Keep your answer to 2-3 sentences max. Your LAST sentence MUST be a direct question asking the user what they want to explore next. Not rhetorical — a real question they answer. Like: 'Want me to dive into how that changed everything?' or 'Should I tell you the surprising part about what happened next?'" : "")
+          + searchContext,
         messages: history,
       });
 
@@ -653,6 +686,16 @@ function JarvisChat({ onClose }) {
     setIsLoading(true);
     const isVoice = voiceModeRef.current;
     try {
+      // Check if we need web search for current/live info
+      let searchContext = "";
+      if (needsWebSearch(msgText)) {
+        const results = await webSearch(msgText);
+        if (results && results.length > 0) {
+          searchContext = "\n\nWEB SEARCH RESULTS (use these for current/live information):\n" +
+            results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.description}\n   Source: ${r.url}`).join("\n");
+        }
+      }
+
       const history = messages.map(m => ({ role: m.role, content: m.content }));
       history.push({ role: "user", content: msgText });
       const data = await callClaude({
@@ -664,7 +707,9 @@ INSTRUCTIONS:
 - Be knowledgeable, direct, and engaging
 - Reference specific facts, dates, names, and details
 - Keep responses concise but substantive
-${isVoice ? "- This is a VOICE conversation. Keep your answer to 2-3 sentences. Your LAST sentence MUST be a direct question asking the user what they want to explore next." : "- CRITICAL RULE: Your final sentence MUST be a direct question to the user. Not rhetorical — a real question they can answer. Like: 'Want me to explain how that works?' or 'Should I tell you the surprising part?'"}`,
+- When web search results are provided, use them to give accurate, up-to-date answers. Cite the source naturally (e.g. "According to..." or "Based on recent reports...").
+- If no search results are provided, answer from your knowledge.
+${isVoice ? "- This is a VOICE conversation. Keep your answer to 2-3 sentences. Your LAST sentence MUST be a direct question asking the user what they want to explore next." : "- CRITICAL RULE: Your final sentence MUST be a direct question to the user. Not rhetorical — a real question they can answer. Like: 'Want me to explain how that works?' or 'Should I tell you the surprising part?'"}${searchContext}`,
         messages: history,
       });
       const text = data.content?.filter(b => b.type === "text").map(b => b.text).join("\n") || "Unable to process that request.";
