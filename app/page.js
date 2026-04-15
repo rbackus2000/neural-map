@@ -25,6 +25,17 @@ const J = {
 const HUB_PALETTE = ["#00E5FF","#FF006E","#FFAB00","#39FF14","#BF5AF2","#0EA5E9","#FF5252","#00E676","#FF9100","#E040FB"];
 const REGULAR_COLOR = "#0EA5E9";
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+  return isMobile;
+}
+
 // ─── PROMPTS ────────────────────────────────────────────────────────────────
 
 function buildGenerationPrompt(topic) {
@@ -204,6 +215,7 @@ const SUGGESTED_TOPICS = [
 // ─── CHAT PANEL ─────────────────────────────────────────────────────────────
 
 function ChatPanel({ node, mapData, onClose, onNavigate }) {
+  const mobile = useIsMobile();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -399,9 +411,9 @@ function ChatPanel({ node, mapData, onClose, onNavigate }) {
   return (
     <div style={{
       position: "absolute", top: 0, right: 0, bottom: 0,
-      width: isExpanded ? "55%" : "400px",
-      maxWidth: isExpanded ? "720px" : "440px",
-      minWidth: "360px",
+      width: mobile ? "100%" : (isExpanded ? "55%" : "400px"),
+      maxWidth: mobile ? "100%" : (isExpanded ? "720px" : "440px"),
+      minWidth: mobile ? "100%" : "360px",
       background: J.bgPanel,
       backdropFilter: "blur(30px)",
       borderLeft: `1px solid ${nodeColor}25`,
@@ -604,7 +616,7 @@ function LoadingScreen({ topic }) {
       </div>
 
       <div style={{ fontSize: 14, fontFamily: J.fontDisplay, fontWeight: 700, color: J.cyan, letterSpacing: 6, textTransform: "uppercase", marginBottom: 8, textShadow: `0 0 20px ${J.cyanGlow}` }}>NEURAL MAP</div>
-      <div style={{ fontSize: 22, fontFamily: J.fontDisplay, fontWeight: 600, color: "#fff", marginBottom: 28, textAlign: "center", padding: "0 20px", letterSpacing: 1 }}>{topic}</div>
+      <div style={{ fontSize: 18, fontFamily: J.fontDisplay, fontWeight: 600, color: "#fff", marginBottom: 28, textAlign: "center", padding: "0 20px", letterSpacing: 1 }}>{topic}</div>
       <div style={{ fontSize: 11, fontFamily: J.fontMono, color: J.textDim, minWidth: 300, textAlign: "center", letterSpacing: 2 }}>{phases[phase]}{dots}</div>
 
       {/* Bottom data stream decoration */}
@@ -620,6 +632,7 @@ function LoadingScreen({ topic }) {
 // ─── LANDING SCREEN ─────────────────────────────────────────────────────────
 
 function JarvisChat({ onClose }) {
+  const mobile = useIsMobile();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -736,8 +749,8 @@ ${isVoice ? "- This is a VOICE conversation. Keep your answer to 2-3 sentences. 
 
   return (
     <div style={{
-      position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-      width: "90%", maxWidth: 560, height: "70vh", maxHeight: 640,
+      position: "absolute", top: mobile ? 0 : "50%", left: mobile ? 0 : "50%", transform: mobile ? "none" : "translate(-50%, -50%)",
+      width: mobile ? "100%" : "90%", maxWidth: mobile ? "100%" : 560, height: mobile ? "100%" : "70vh", maxHeight: mobile ? "100%" : 640,
       background: J.bgPanel, backdropFilter: "blur(30px)",
       border: `1px solid ${J.cyan}20`, display: "flex", flexDirection: "column",
       zIndex: 60, boxShadow: `0 0 60px rgba(0,0,0,0.6), 0 0 30px ${J.cyanGlow}`,
@@ -826,6 +839,7 @@ ${isVoice ? "- This is a VOICE conversation. Keep your answer to 2-3 sentences. 
 }
 
 function LandingScreen({ onGenerate }) {
+  const mobile = useIsMobile();
   const [input, setInput] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [showJarvis, setShowJarvis] = useState(false);
@@ -880,15 +894,15 @@ function LandingScreen({ onGenerate }) {
           <div style={{ width: 40, height: 1, background: `linear-gradient(90deg, ${J.cyan}, transparent)` }} />
         </div>
 
-        <h1 style={{ fontSize: 32, fontFamily: J.fontDisplay, fontWeight: 700, color: "#fff", margin: "0 0 10px", lineHeight: 1.15, letterSpacing: 1 }}>
+        <h1 style={{ fontSize: mobile ? 22 : 32, fontFamily: J.fontDisplay, fontWeight: 700, color: "#fff", margin: "0 0 10px", lineHeight: 1.15, letterSpacing: mobile ? 0 : 1 }}>
           MAP ANY SUBJECT AS A<br /><span style={{ color: J.cyan, textShadow: `0 0 30px ${J.cyanGlow}` }}>NEURAL NETWORK</span>
         </h1>
-        <p style={{ fontSize: 14, fontFamily: J.fontBody, fontWeight: 400, color: J.textMid, margin: "0 0 36px", lineHeight: 1.7, letterSpacing: 0.3 }}>
-          Enter any topic and watch AI knowledge unfold into an interactive<br />knowledge graph you can explore and interrogate.
+        <p style={{ fontSize: mobile ? 12 : 14, fontFamily: J.fontBody, fontWeight: 400, color: J.textMid, margin: "0 0 28px", lineHeight: 1.7, letterSpacing: 0.3 }}>
+          Enter any topic and watch AI knowledge unfold into an interactive{mobile ? " " : <br />}knowledge graph you can explore and interrogate.
         </p>
 
         <form onSubmit={e => { e.preventDefault(); handleSubmit(); }} style={{
-          display: "flex", gap: 0, marginBottom: 36, position: "relative",
+          display: "flex", gap: 0, marginBottom: mobile ? 24 : 36, position: "relative",
           border: `1px solid ${isFocused ? J.cyan + "50" : J.border}`,
           background: isFocused ? "rgba(0,229,255,0.04)" : "rgba(0,229,255,0.02)",
           transition: "all 0.3s",
@@ -906,8 +920,8 @@ function LandingScreen({ onGenerate }) {
           <button type="submit" disabled={!input.trim()}
             style={{
               background: input.trim() ? J.cyan : "rgba(0,229,255,0.08)",
-              border: "none", padding: "14px 28px", fontSize: 12, fontWeight: 700,
-              fontFamily: J.fontDisplay, letterSpacing: 3,
+              border: "none", padding: mobile ? "14px 16px" : "14px 28px", fontSize: mobile ? 10 : 12, fontWeight: 700,
+              fontFamily: J.fontDisplay, letterSpacing: mobile ? 2 : 3,
               color: input.trim() ? J.bg : "rgba(0,229,255,0.25)",
               cursor: input.trim() ? "pointer" : "default", transition: "all 0.2s",
               boxShadow: input.trim() ? `0 0 20px ${J.cyanGlow}` : "none",
@@ -917,10 +931,10 @@ function LandingScreen({ onGenerate }) {
         </form>
 
         <div style={{ fontSize: 9, fontFamily: J.fontDisplay, color: J.textDim, textTransform: "uppercase", letterSpacing: 4, marginBottom: 14 }}>SELECT TARGET</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: mobile ? 6 : 8, justifyContent: "center" }}>
           {SUGGESTED_TOPICS.map(t => (
             <button key={t.label} onClick={() => onGenerate(t.label)}
-              style={{ background: "rgba(0,229,255,0.03)", border: `1px solid ${J.border}`, borderRadius: 1, padding: "8px 16px", fontSize: 12, fontFamily: J.fontBody, fontWeight: 500, color: J.textMid, cursor: "pointer", transition: "all 0.2s", display: "flex", alignItems: "center", gap: 8, letterSpacing: 0.5 }}
+              style={{ background: "rgba(0,229,255,0.03)", border: `1px solid ${J.border}`, borderRadius: 1, padding: mobile ? "6px 10px" : "8px 16px", fontSize: mobile ? 11 : 12, fontFamily: J.fontBody, fontWeight: 500, color: J.textMid, cursor: "pointer", transition: "all 0.2s", display: "flex", alignItems: "center", gap: mobile ? 5 : 8, letterSpacing: 0.5 }}
               onMouseEnter={e => { e.currentTarget.style.background = "rgba(0,229,255,0.08)"; e.currentTarget.style.borderColor = J.cyan + "40"; e.currentTarget.style.color = J.cyan; e.currentTarget.style.boxShadow = `0 0 12px rgba(0,229,255,0.1)`; }}
               onMouseLeave={e => { e.currentTarget.style.background = "rgba(0,229,255,0.03)"; e.currentTarget.style.borderColor = J.border; e.currentTarget.style.color = J.textMid; e.currentTarget.style.boxShadow = "none"; }}
             >
@@ -960,6 +974,7 @@ function LandingScreen({ onGenerate }) {
 // ─── MAIN APP ───────────────────────────────────────────────────────────────
 
 export default function NeuralMapApp() {
+  const mobile = useIsMobile();
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const [appState, setAppState] = useState("landing");
@@ -1334,33 +1349,55 @@ export default function NeuralMapApp() {
         <>
           {/* Header */}
           {!isFullscreen && (
-          <div style={{ padding: "10px 18px", borderBottom: `1px solid ${J.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, zIndex: 40, background: "rgba(3,8,15,0.95)", backdropFilter: "blur(10px)", flexWrap: "wrap", gap: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ padding: mobile ? "8px 10px" : "10px 18px", borderBottom: `1px solid ${J.border}`, display: "flex", alignItems: mobile ? "flex-start" : "center", justifyContent: "space-between", flexShrink: 0, zIndex: 40, background: "rgba(3,8,15,0.95)", backdropFilter: "blur(10px)", flexWrap: "wrap", gap: mobile ? 6 : 8, flexDirection: mobile ? "column" : "row" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: mobile ? 8 : 12, flexWrap: "wrap" }}>
               <button onClick={() => { setAppState("landing"); setMapData(null); setSelectedNode(null); }}
-                style={{ background: "rgba(0,229,255,0.04)", border: `1px solid ${J.border}`, borderRadius: 2, padding: "6px 14px", fontSize: 11, fontFamily: J.fontDisplay, fontWeight: 600, color: J.cyan, cursor: "pointer", minHeight: 32, letterSpacing: 2, transition: "all 0.2s" }}>◁ NEW</button>
-              <div style={{ width: 3, height: 18, background: J.cyan, boxShadow: `0 0 8px ${J.cyanGlow}` }} />
-              <span style={{ fontSize: 14, fontFamily: J.fontDisplay, fontWeight: 700, color: J.cyan, letterSpacing: 3, textTransform: "uppercase", textShadow: `0 0 12px ${J.cyanGlow}` }}>{mapData.title || currentTopic}</span>
-              <span style={{ fontSize: 11, fontFamily: J.fontMono, color: J.textDim, letterSpacing: 1 }}>{mapData.nodes.length} NODES // {mapData.connections.length} LINKS</span>
+                style={{ background: "rgba(0,229,255,0.04)", border: `1px solid ${J.border}`, borderRadius: 2, padding: mobile ? "5px 10px" : "6px 14px", fontSize: mobile ? 10 : 11, fontFamily: J.fontDisplay, fontWeight: 600, color: J.cyan, cursor: "pointer", minHeight: mobile ? 28 : 32, letterSpacing: 2, transition: "all 0.2s" }}>◁ NEW</button>
+              <div style={{ width: 3, height: 14, background: J.cyan, boxShadow: `0 0 8px ${J.cyanGlow}` }} />
+              <span style={{ fontSize: mobile ? 11 : 14, fontFamily: J.fontDisplay, fontWeight: 700, color: J.cyan, letterSpacing: mobile ? 1 : 3, textTransform: "uppercase", textShadow: `0 0 12px ${J.cyanGlow}` }}>{mapData.title || currentTopic}</span>
+              <span style={{ fontSize: mobile ? 9 : 11, fontFamily: J.fontMono, color: J.textDim, letterSpacing: 1 }}>{mapData.nodes.length} N // {mapData.connections.length} L</span>
             </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: mobile ? 4 : 6, flexWrap: "wrap", alignItems: "center" }}>
               {Object.entries(mapData.categories).map(([key, { color, label }]) => (
                 <button key={key} onClick={() => setActiveFilter(activeFilter === key ? null : key)}
-                  style={{ background: activeFilter === key ? color + "18" : "rgba(0,229,255,0.03)", border: `1px solid ${activeFilter === key ? color + "50" : J.border}`, borderRadius: 2, padding: "6px 14px", fontSize: 11, fontFamily: J.fontBody, fontWeight: 600, minHeight: 32, color: activeFilter === key ? color : J.textMid, cursor: "pointer", transition: "all 0.2s", letterSpacing: 0.5 }}>
-                  <span style={{ display: "inline-block", width: 6, height: 6, background: color, marginRight: 6, verticalAlign: "middle", boxShadow: activeFilter === key ? `0 0 6px ${color}` : "none" }} />{label}
+                  style={{ background: activeFilter === key ? color + "18" : "rgba(0,229,255,0.03)", border: `1px solid ${activeFilter === key ? color + "50" : J.border}`, borderRadius: 2, padding: mobile ? "4px 8px" : "6px 14px", fontSize: mobile ? 9 : 11, fontFamily: J.fontBody, fontWeight: 600, minHeight: mobile ? 26 : 32, color: activeFilter === key ? color : J.textMid, cursor: "pointer", transition: "all 0.2s", letterSpacing: 0.5 }}>
+                  <span style={{ display: "inline-block", width: 5, height: 5, background: color, marginRight: 4, verticalAlign: "middle", boxShadow: activeFilter === key ? `0 0 6px ${color}` : "none" }} />{label}
                 </button>
               ))}
-              <button onClick={() => setIsFullscreen(true)}
-                style={{ background: "rgba(0,229,255,0.04)", border: `1px solid ${J.border}`, borderRadius: 2, padding: "6px 14px", fontSize: 11, fontFamily: J.fontDisplay, fontWeight: 600, color: J.cyan, cursor: "pointer", minHeight: 32, letterSpacing: 2, transition: "all 0.2s" }}>⛶ EXPAND</button>
+              {!mobile && <button onClick={() => setIsFullscreen(true)}
+                style={{ background: "rgba(0,229,255,0.04)", border: `1px solid ${J.border}`, borderRadius: 2, padding: "6px 14px", fontSize: 11, fontFamily: J.fontDisplay, fontWeight: 600, color: J.cyan, cursor: "pointer", minHeight: 32, letterSpacing: 2, transition: "all 0.2s" }}>⛶ EXPAND</button>}
             </div>
           </div>
           )}
 
           {/* Canvas */}
           <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-            <canvas ref={canvasRef} style={{ width: "100%", height: "100%", cursor: "crosshair" }}
+            <canvas ref={canvasRef} style={{ width: "100%", height: "100%", cursor: "crosshair", touchAction: "none" }}
               onMouseMove={handleMouseMove} onClick={handleClick} onWheel={handleWheel}
               onMouseDown={handleMouseDown} onMouseUp={() => { panRef.current.isPanning = false; }}
               onMouseLeave={() => { panRef.current.isPanning = false; setHoveredNode(null); }}
+              onTouchStart={(e) => {
+                const touch = e.touches[0];
+                const rect = canvasRef.current?.getBoundingClientRect();
+                if (!rect) return;
+                const mx = touch.clientX - rect.left;
+                const my = touch.clientY - rect.top;
+                const node = getNodeAt(mx, my);
+                if (node) { setSelectedNode(node); } else {
+                  panRef.current.isPanning = true;
+                  panRef.current.startX = mx - panRef.current.x;
+                  panRef.current.startY = my - panRef.current.y;
+                }
+              }}
+              onTouchMove={(e) => {
+                if (panRef.current.isPanning && e.touches[0]) {
+                  const rect = canvasRef.current?.getBoundingClientRect();
+                  if (!rect) return;
+                  panRef.current.x = (e.touches[0].clientX - rect.left) - panRef.current.startX;
+                  panRef.current.y = (e.touches[0].clientY - rect.top) - panRef.current.startY;
+                }
+              }}
+              onTouchEnd={() => { panRef.current.isPanning = false; }}
             />
 
             {/* Fullscreen exit */}
@@ -1370,13 +1407,15 @@ export default function NeuralMapApp() {
             )}
 
             {/* HUD corner markers on canvas */}
+            {!mobile && <>
             <div style={{ position: "absolute", top: 12, left: 12, width: 24, height: 24, borderTop: `1px solid ${J.cyan}30`, borderLeft: `1px solid ${J.cyan}30`, pointerEvents: "none" }} />
             <div style={{ position: "absolute", top: 12, right: selectedNode ? 420 : 12, width: 24, height: 24, borderTop: `1px solid ${J.cyan}30`, borderRight: `1px solid ${J.cyan}30`, pointerEvents: "none", transition: "right 0.3s" }} />
             <div style={{ position: "absolute", bottom: 12, left: 12, width: 24, height: 24, borderBottom: `1px solid ${J.cyan}30`, borderLeft: `1px solid ${J.cyan}30`, pointerEvents: "none" }} />
             <div style={{ position: "absolute", bottom: 12, right: selectedNode ? 420 : 12, width: 24, height: 24, borderBottom: `1px solid ${J.cyan}30`, borderRight: `1px solid ${J.cyan}30`, pointerEvents: "none", transition: "right 0.3s" }} />
+            </>}
 
-            {/* Tooltip */}
-            {hoveredNode && !selectedNode && (() => {
+            {/* Tooltip — desktop only */}
+            {!mobile && hoveredNode && !selectedNode && (() => {
               const ttColor = getTooltipColor(hoveredNode);
               const cc = computeConnectionCounts(mapData.connections);
               const ttConns = cc[hoveredNode.id] || 0;
@@ -1403,18 +1442,20 @@ export default function NeuralMapApp() {
             })()}
 
             {/* Zoom controls */}
-            <div style={{ position: "absolute", bottom: 20, right: selectedNode ? 420 : 20, zIndex: 45, display: "flex", flexDirection: "column", gap: 4, transition: "right 0.3s ease" }}>
+            {!(mobile && selectedNode) && (
+            <div style={{ position: "absolute", bottom: 20, right: (!mobile && selectedNode) ? 420 : 20, zIndex: 45, display: "flex", flexDirection: "column", gap: 4, transition: "right 0.3s ease" }}>
               <button onClick={() => { panRef.current.scale = Math.min(3, panRef.current.scale * 1.25); }}
-                style={{ width: 36, height: 36, borderRadius: 2, background: "rgba(3,8,15,0.9)", backdropFilter: "blur(10px)", border: `1px solid ${J.border}`, color: J.cyan, fontSize: 18, cursor: "pointer", fontFamily: J.fontMono, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}>+</button>
+                style={{ width: mobile ? 40 : 36, height: mobile ? 40 : 36, borderRadius: 2, background: "rgba(3,8,15,0.9)", backdropFilter: "blur(10px)", border: `1px solid ${J.border}`, color: J.cyan, fontSize: 18, cursor: "pointer", fontFamily: J.fontMono, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}>+</button>
               <button onClick={() => { panRef.current.scale = Math.max(0.3, panRef.current.scale * 0.8); }}
-                style={{ width: 36, height: 36, borderRadius: 2, background: "rgba(3,8,15,0.9)", backdropFilter: "blur(10px)", border: `1px solid ${J.border}`, color: J.cyan, fontSize: 18, cursor: "pointer", fontFamily: J.fontMono, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}>-</button>
+                style={{ width: mobile ? 40 : 36, height: mobile ? 40 : 36, borderRadius: 2, background: "rgba(3,8,15,0.9)", backdropFilter: "blur(10px)", border: `1px solid ${J.border}`, color: J.cyan, fontSize: 18, cursor: "pointer", fontFamily: J.fontMono, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}>-</button>
             </div>
+            )}
 
             {selectedNode && mapData && <ChatPanel node={selectedNode} mapData={mapData} onClose={() => setSelectedNode(null)} onNavigate={handleNavigate} />}
 
             {!selectedNode && (
-              <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "rgba(3,8,15,0.9)", backdropFilter: "blur(10px)", border: `1px solid ${J.border}`, padding: "10px 24px", fontSize: 10, fontFamily: J.fontMono, color: J.textDim, pointerEvents: "none", textAlign: "center", letterSpacing: 2 }}>
-                CLICK NODE TO ANALYZE &middot; SCROLL TO ZOOM &middot; DRAG TO PAN
+              <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "rgba(3,8,15,0.9)", backdropFilter: "blur(10px)", border: `1px solid ${J.border}`, padding: mobile ? "8px 14px" : "10px 24px", fontSize: mobile ? 9 : 10, fontFamily: J.fontMono, color: J.textDim, pointerEvents: "none", textAlign: "center", letterSpacing: mobile ? 1 : 2, whiteSpace: "nowrap" }}>
+                {mobile ? "TAP NODE TO ANALYZE" : "CLICK NODE TO ANALYZE \u00B7 SCROLL TO ZOOM \u00B7 DRAG TO PAN"}
               </div>
             )}
           </div>
