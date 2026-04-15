@@ -841,6 +841,14 @@ export default function NeuralMapApp() {
               );
             })()}
 
+            {/* Zoom controls */}
+            <div style={{ position: "absolute", bottom: 20, right: selectedNode ? 400 : 20, zIndex: 45, display: "flex", flexDirection: "column", gap: 4, transition: "right 0.3s ease" }}>
+              <button onClick={() => { panRef.current.scale = Math.min(3, panRef.current.scale * 1.25); }}
+                style={{ width: 36, height: 36, borderRadius: 8, background: "rgba(5,5,8,0.85)", backdropFilter: "blur(10px)", border: "1px solid rgba(139,168,160,0.2)", color: "rgba(255,255,255,0.6)", fontSize: 18, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+              <button onClick={() => { panRef.current.scale = Math.max(0.3, panRef.current.scale * 0.8); }}
+                style={{ width: 36, height: 36, borderRadius: 8, background: "rgba(5,5,8,0.85)", backdropFilter: "blur(10px)", border: "1px solid rgba(139,168,160,0.2)", color: "rgba(255,255,255,0.6)", fontSize: 18, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+            </div>
+
             {selectedNode && mapData && <ChatPanel node={selectedNode} mapData={mapData} onClose={() => setSelectedNode(null)} onNavigate={handleNavigate} />}
 
             {!selectedNode && (
