@@ -1101,11 +1101,16 @@ ${isVoice ? "This is VOICE mode. Keep to 2-3 sentences. End with a direct questi
 
 // ─── LANDING SCREEN ─────────────────────────────────────────────────────────
 
-function LandingScreen({ onGenerate }) {
+function LandingScreen({ onGenerate, onLoadMap }) {
   const mobile = useIsMobile();
   const [input, setInput] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [showJarvis, setShowJarvis] = useState(false);
+  const [recentMaps, setRecentMaps] = useState([]);
+
+  useEffect(() => {
+    try { setRecentMaps(JSON.parse(localStorage.getItem("nmap-recent") || "[]")); } catch {}
+  }, []);
 
   const handleSubmit = () => { if (input.trim()) onGenerate(input.trim()); };
 
@@ -1159,6 +1164,26 @@ function LandingScreen({ onGenerate }) {
             ASK JARVIS
           </button>
         </div>
+        {/* Recent Maps */}
+        {recentMaps.length > 0 && (
+          <div style={{ marginTop: 32 }}>
+            <div style={{ fontSize: 9, fontFamily: J.fontDisplay, color: J.textDim, textTransform: "uppercase", letterSpacing: 4, marginBottom: 12, textAlign: "center" }}>RECENT MAPS</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+              {recentMaps.map(r => (
+                <button key={r.id} onClick={() => onLoadMap(r.id)}
+                  style={{ background: "rgba(0,229,255,0.03)", border: `1px solid ${J.border}`, borderRadius: 1, padding: mobile ? "6px 10px" : "8px 16px", fontSize: mobile ? 11 : 12, fontFamily: J.fontBody, fontWeight: 500, color: J.textMid, cursor: "pointer", transition: "all 0.2s", display: "flex", alignItems: "center", gap: 8, letterSpacing: 0.5 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = `${J.amber}10`; e.currentTarget.style.borderColor = `${J.amber}40`; e.currentTarget.style.color = J.amber; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "rgba(0,229,255,0.03)"; e.currentTarget.style.borderColor = J.border; e.currentTarget.style.color = J.textMid; }}
+                >
+                  <span style={{ fontSize: 8, color: J.amber }}>●</span>
+                  {r.topic}
+                  <span style={{ fontSize: 8, fontFamily: J.fontMono, color: J.textDim }}>{new Date(r.savedAt).toLocaleDateString()}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div style={{ marginTop: 32, display: "flex", justifyContent: "center", gap: 24, opacity: 0.3 }}>
           {["STATUS: READY", "AI: ONLINE", "v2.0.0"].map((s, i) => (
             <span key={i} style={{ fontSize: 9, fontFamily: J.fontMono, color: J.cyan, letterSpacing: 2 }}>{s}</span>
@@ -1216,20 +1241,28 @@ export default function NeuralMapApp() {
     animType: null,
   });
 
-  // Feature 1: Load shared map from URL
+  // Feature 1: Load saved map by ID
+  const loadSavedMap = useCallback((id) => {
+    setAppState("loading"); setCurrentTopic("Loading saved map...");
+    setSelectedNode(null); setSelectedSub(null);
+    chatCacheRef.current = {};
+    treeStateRef.current = { phase: "idle", expandedSubId: null, pendingExpandSubId: null, animProgress: 0, animStartTime: null, animDuration: 800, animType: null };
+    panRef.current = { x: 0, y: 0, startX: 0, startY: 0, isPanning: false, scale: 1 };
+    fetch(`/api/maps/${id}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.map_data) {
+          setMapData(data.map_data); setCurrentTopic(data.topic); setMapId(id); setAppState("map");
+        } else { setError("Map not found"); setAppState("landing"); }
+      })
+      .catch(() => { setError("Failed to load map"); setAppState("landing"); });
+  }, []);
+
+  // Load shared map from URL on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sharedId = params.get("map");
-    if (sharedId) {
-      setAppState("loading"); setCurrentTopic("Loading shared map...");
-      fetch(`/api/maps/${sharedId}`)
-        .then(r => r.ok ? r.json() : null)
-        .then(data => {
-          if (data?.map_data) {
-            setMapData(data.map_data); setCurrentTopic(data.topic); setMapId(sharedId); setAppState("map");
-          } else { setError("Shared map not found"); setAppState("landing"); }
-        })
-        .catch(() => { setError("Failed to load shared map"); setAppState("landing"); });
+    if (sharedId) { loadSavedMap(sharedId);
     }
   }, []);
 
@@ -1245,6 +1278,12 @@ export default function NeuralMapApp() {
       const { id } = await res.json();
       if (id) {
         setMapId(id);
+        // Save to localStorage for recent maps
+        try {
+          const recent = JSON.parse(localStorage.getItem("nmap-recent") || "[]");
+          const updated = [{ id, topic: currentTopic, savedAt: Date.now() }, ...recent.filter(r => r.id !== id)].slice(0, 10);
+          localStorage.setItem("nmap-recent", JSON.stringify(updated));
+        } catch {}
         // Flush chat cache to Supabase
         const cacheEntries = Object.entries(chatCacheRef.current);
         if (cacheEntries.length > 0) {
@@ -1803,7 +1842,7 @@ export default function NeuralMapApp() {
 
       {appState === "landing" && (
         <>
-          <LandingScreen onGenerate={generateMap} />
+          <LandingScreen onGenerate={generateMap} onLoadMap={loadSavedMap} />
           {error && (
             <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "rgba(255,0,110,0.12)", border: `1px solid rgba(255,0,110,0.3)`, borderRadius: 2, padding: "10px 20px", fontSize: 12, fontFamily: J.fontBody, color: J.magenta, zIndex: 200 }}>{error}</div>
           )}
