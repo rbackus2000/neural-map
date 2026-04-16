@@ -229,9 +229,9 @@ const SUGGESTED_TOPICS = [
   { label: "Ancient Egypt", icon: "◆" },
 ];
 
-// ─── CHAT PANEL (adapted for hierarchical data) ─────────────────────────────
+// ─── CHAT PANEL (adapted for hierarchical data + persistence + export) ──────
 
-function ChatPanel({ node, subcategory, siblings, mapTitle, nodeColor, onClose, onNavigate }) {
+function ChatPanel({ node, subcategory, siblings, mapTitle, nodeColor, onClose, onNavigate, chatCacheRef, mapId }) {
   const mobile = useIsMobile();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -240,14 +240,29 @@ function ChatPanel({ node, subcategory, siblings, mapTitle, nodeColor, onClose, 
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceMode, setVoiceMode] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const voiceModeRef = useRef(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
 
   useEffect(() => {
-    setMessages([]); setInput(""); stopSpeaking();
+    // Load from cache or Supabase
+    const cached = chatCacheRef?.current?.[node.id];
+    if (cached && cached.length > 0) {
+      setMessages(cached);
+    } else if (mapId) {
+      fetch(`/api/maps/${mapId}/chat?nodeId=${node.id}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data?.messages?.length > 0) { setMessages(data.messages); if (chatCacheRef?.current) chatCacheRef.current[node.id] = data.messages; } })
+        .catch(() => {});
+    } else {
+      setMessages([]);
+    }
+    setInput(""); stopSpeaking();
     setVoiceMode(false); voiceModeRef.current = false;
+    setShowExport(false);
     inputRef.current?.focus();
   }, [node.id]);
 
@@ -324,7 +339,10 @@ function ChatPanel({ node, subcategory, siblings, mapTitle, nodeColor, onClose, 
         messages: history,
       });
       const text = data.content?.filter(b => b.type === "text").map(b => b.text).join("\n") || "Unable to process.";
+      const newMessages = [...messages, { role: "user", content: msgText }, { role: "assistant", content: text }];
       setMessages(prev => [...prev, { role: "assistant", content: text }]);
+      // Persist to cache
+      if (chatCacheRef?.current) chatCacheRef.current[node.id] = newMessages;
       if (isVoice) speakText(text);
     } catch (err) {
       setMessages(prev => [...prev, { role: "assistant", content: `Error: ${err.message}` }]);
@@ -343,6 +361,79 @@ function ChatPanel({ node, subcategory, siblings, mapTitle, nodeColor, onClose, 
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); setVoiceMode(false); voiceModeRef.current = false; sendMessage(); }
+  };
+
+  // ─── CHAT EXPORT ──────────────────────────────────────────────────────────
+  const exportMarkdown = () => {
+    let md = `# ${mapTitle}\n## ${subcategory.title} > ${node.title}\n\n> ${node.summary}\n\n---\n\n`;
+    messages.forEach(m => { md += m.role === "user" ? `**You:** ${m.content}\n\n` : `**JARVIS:** ${m.content}\n\n`; });
+    const blob = new Blob([md], { type: "text/markdown" });
+    const link = document.createElement("a"); link.href = URL.createObjectURL(blob);
+    link.download = `${node.title.replace(/\s+/g, "-")}-chat.md`; link.click();
+    URL.revokeObjectURL(link.href); setShowExport(false);
+  };
+
+  const exportPDFReport = async () => {
+    setIsExporting(true);
+    try {
+      const res = await fetch("/api/export/report", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ node, subcategory, mapTitle, messages, format: "report" }),
+      });
+      const { content } = await res.json();
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF(); const pw = doc.internal.pageSize.width; const ph = doc.internal.pageSize.height;
+      doc.setFillColor(3, 8, 15); doc.rect(0, 0, pw, ph, "F");
+      doc.setTextColor(0, 229, 255); doc.setFontSize(20);
+      doc.text(node.title, 20, 30);
+      doc.setTextColor(192, 216, 232); doc.setFontSize(10);
+      doc.text(`${mapTitle} > ${subcategory.title}`, 20, 40);
+      doc.setDrawColor(0, 229, 255); doc.line(20, 45, pw - 20, 45);
+      doc.setTextColor(192, 216, 232); doc.setFontSize(11);
+      const lines = doc.splitTextToSize(content, pw - 40);
+      let y = 55;
+      lines.forEach(line => {
+        if (y > ph - 20) { doc.addPage(); doc.setFillColor(3, 8, 15); doc.rect(0, 0, pw, ph, "F"); doc.setTextColor(192, 216, 232); y = 20; }
+        doc.text(line, 20, y); y += 6;
+      });
+      doc.save(`${node.title.replace(/\s+/g, "-")}-report.pdf`);
+    } catch {} finally { setIsExporting(false); setShowExport(false); }
+  };
+
+  const exportInfographic = async () => {
+    setIsExporting(true);
+    try {
+      const res = await fetch("/api/export/report", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ node, subcategory, mapTitle, messages, format: "infographic" }),
+      });
+      const { content } = await res.json();
+      let facts;
+      try { facts = JSON.parse(content.replace(/```json|```/g, "").trim()); } catch { facts = [{ fact: content, category: "General", importance: 5 }]; }
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet">
+<title>${node.title} — Neural Map</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#03080F;color:#c0d8e8;font-family:'Rajdhani',monospace;padding:40px 20px;min-height:100vh}
+.header{text-align:center;margin-bottom:40px;border-bottom:1px solid rgba(0,229,255,0.15);padding-bottom:20px}
+.title{font-family:'Orbitron',sans-serif;color:#00E5FF;font-size:28px;letter-spacing:3px;text-shadow:0 0 20px rgba(0,229,255,0.4)}
+.subtitle{color:rgba(192,216,232,0.5);font-size:12px;letter-spacing:2px;margin-top:8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;max-width:900px;margin:0 auto}
+.card{background:rgba(0,229,255,0.03);border:1px solid rgba(0,229,255,0.12);padding:20px;position:relative}
+.card::before{content:'';position:absolute;top:0;left:0;width:12px;height:12px;border-top:1px solid #00E5FF;border-left:1px solid #00E5FF}
+.card::after{content:'';position:absolute;bottom:0;right:0;width:12px;height:12px;border-bottom:1px solid #00E5FF;border-right:1px solid #00E5FF}
+.card-cat{font-family:'Orbitron',sans-serif;color:#00E5FF;font-size:9px;letter-spacing:2px;margin-bottom:8px;text-transform:uppercase}
+.card-fact{font-size:15px;line-height:1.6;color:#e0f0ff}
+.importance{display:flex;gap:3px;margin-top:10px}
+.dot{width:6px;height:6px;background:rgba(0,229,255,0.15)}
+.dot.active{background:#00E5FF;box-shadow:0 0 4px #00E5FF}</style></head>
+<body><div class="header"><div class="title">${node.title.toUpperCase()}</div><div class="subtitle">${mapTitle} // ${subcategory.title}</div></div>
+<div class="grid">${facts.map(f => `<div class="card"><div class="card-cat">${f.category || ""}</div><div class="card-fact">${f.fact}</div>
+<div class="importance">${[1,2,3,4,5].map(i => `<div class="dot${i <= (f.importance || 3) ? " active" : ""}"></div>`).join("")}</div></div>`).join("")}</div></body></html>`;
+      const blob = new Blob([html], { type: "text/html" });
+      const link = document.createElement("a"); link.href = URL.createObjectURL(blob);
+      link.download = `${node.title.replace(/\s+/g, "-")}-infographic.html`; link.click();
+      URL.revokeObjectURL(link.href);
+    } catch {} finally { setIsExporting(false); setShowExport(false); }
   };
 
   const quickPrompts = [
@@ -375,11 +466,25 @@ function ChatPanel({ node, subcategory, siblings, mapTitle, nodeColor, onClose, 
               {subcategory.title}
             </span>
           </div>
-          <div style={{ display: "flex", gap: 4 }}>
+          <div style={{ display: "flex", gap: 4, position: "relative" }}>
+            {messages.length > 0 && (
+              <button onClick={() => setShowExport(!showExport)} style={{ background: showExport ? `${nodeColor}15` : "rgba(0,229,255,0.04)", border: `1px solid ${showExport ? nodeColor + "40" : J.border}`, color: showExport ? nodeColor : J.cyan, width: 30, height: 30, borderRadius: 2, cursor: "pointer", fontSize: 10, fontFamily: J.fontMono, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </button>
+            )}
             <button onClick={() => setIsExpanded(!isExpanded)} style={{ background: "rgba(0,229,255,0.04)", border: `1px solid ${J.border}`, color: J.cyan, width: 30, height: 30, borderRadius: 2, cursor: "pointer", fontSize: 11, fontFamily: J.fontMono, display: "flex", alignItems: "center", justifyContent: "center" }}>
               {isExpanded ? "◁" : "▷"}
             </button>
             <button onClick={onClose} style={{ background: "rgba(0,229,255,0.04)", border: `1px solid ${J.border}`, color: J.cyan, width: 30, height: 30, borderRadius: 2, cursor: "pointer", fontSize: 15, fontFamily: J.fontMono, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+            {showExport && (
+              <div style={{ position: "absolute", top: 34, right: 0, background: J.bgPanel, border: `1px solid ${J.border}`, zIndex: 10, minWidth: 180, boxShadow: `0 8px 24px rgba(0,0,0,0.5)` }}>
+                <HudCorner position="tl" size={8} color={nodeColor} />
+                <HudCorner position="br" size={8} color={nodeColor} />
+                <button onClick={exportMarkdown} style={{ display: "block", width: "100%", background: "none", border: "none", borderBottom: `1px solid ${J.border}`, padding: "10px 14px", fontSize: 11, fontFamily: J.fontBody, color: J.text, cursor: "pointer", textAlign: "left", letterSpacing: 0.5 }}>Markdown (.md)</button>
+                <button onClick={exportPDFReport} disabled={isExporting} style={{ display: "block", width: "100%", background: "none", border: "none", borderBottom: `1px solid ${J.border}`, padding: "10px 14px", fontSize: 11, fontFamily: J.fontBody, color: J.text, cursor: isExporting ? "wait" : "pointer", textAlign: "left", letterSpacing: 0.5 }}>{isExporting ? "GENERATING..." : "PDF Report"}</button>
+                <button onClick={exportInfographic} disabled={isExporting} style={{ display: "block", width: "100%", background: "none", border: "none", padding: "10px 14px", fontSize: 11, fontFamily: J.fontBody, color: J.text, cursor: isExporting ? "wait" : "pointer", textAlign: "left", letterSpacing: 0.5 }}>{isExporting ? "GENERATING..." : "Infographic (.html)"}</button>
+              </div>
+            )}
           </div>
         </div>
         <div style={{ fontSize: 17, fontFamily: J.fontDisplay, fontWeight: 600, color: "#fff", marginBottom: 8, lineHeight: 1.3, letterSpacing: 0.5 }}>{node.title}</div>
@@ -480,6 +585,213 @@ function ChatPanel({ node, subcategory, siblings, mapTitle, nodeColor, onClose, 
             <span style={{ fontSize: 9, fontFamily: J.fontDisplay, color: J.textDim, letterSpacing: 2 }}>VOICE SESSION ACTIVE — TAP MIC TO CONTINUE</span>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── CONNECTION CHAT (explore a cross-map connection) ───────────────────────
+
+function ConnectionChat({ conn, onClose, mobile }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => { setMessages([]); setInput(""); setShowExport(false); inputRef.current?.focus(); }, [conn._connIndex]);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  const sendMessage = async (overrideText) => {
+    const msgText = overrideText || input.trim();
+    if (!msgText || isLoading) return;
+    setInput("");
+    setMessages(prev => [...prev, { role: "user", content: msgText }]);
+    setIsLoading(true);
+    try {
+      const history = messages.map(m => ({ role: m.role, content: m.content }));
+      history.push({ role: "user", content: msgText });
+      const data = await callClaude({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1500,
+        system: `You are an expert analyzing the CONNECTION between two topics from different knowledge maps.
+
+CONNECTION: "${conn.srcName}" (from "${conn.srcMap}") ⟷ "${conn.tgtName}" (from "${conn.tgtMap}")
+RELATIONSHIP: ${conn.description}
+
+INSTRUCTIONS:
+- You are a world-class expert on how these two topics connect across their respective domains
+- Explain the relationship with specific facts, dates, names, and causal links
+- Draw on deep knowledge of both "${conn.srcMap}" and "${conn.tgtMap}" to illuminate the connection
+- Be concise and direct — no fluff
+- CRITICAL: Your final sentence MUST be a direct question to the user about what aspect of this connection they want to explore next.`,
+        messages: history,
+      });
+      const text = data.content?.filter(b => b.type === "text").map(b => b.text).join("\n") || "Unable to process.";
+      setMessages(prev => [...prev, { role: "assistant", content: text }]);
+    } catch (err) {
+      setMessages(prev => [...prev, { role: "assistant", content: `Error: ${err.message}` }]);
+    }
+    setIsLoading(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  };
+
+  const quickPrompts = [
+    "Explain this connection in detail",
+    "What caused this relationship?",
+    "How did one influence the other?",
+    "What are the surprising parallels?",
+  ];
+
+  return (
+    <div style={{
+      position: "absolute", top: 0, right: 0, bottom: 0,
+      width: mobile ? "100%" : "400px", maxWidth: mobile ? "100%" : "440px", minWidth: mobile ? "100%" : "360px",
+      background: J.bgPanel, backdropFilter: "blur(30px)",
+      borderLeft: `1px solid ${J.magenta}25`,
+      display: "flex", flexDirection: "column", zIndex: 30,
+      boxShadow: `-4px 0 40px rgba(0,0,0,0.6)`,
+    }}>
+      <ScanLine />
+      {/* Header */}
+      <div style={{ padding: "16px 18px", borderBottom: `1px solid ${J.magenta}20`, flexShrink: 0, position: "relative" }}>
+        <HudCorner position="tl" color={J.magenta} />
+        <HudCorner position="tr" color={J.magenta} />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 3, height: 16, background: J.magenta, boxShadow: `0 0 8px ${J.magenta}80` }} />
+            <span style={{ fontSize: 9, fontFamily: J.fontDisplay, color: J.magenta, textTransform: "uppercase", letterSpacing: 3, fontWeight: 600 }}>CONNECTION ANALYSIS</span>
+          </div>
+          <div style={{ display: "flex", gap: 4, position: "relative" }}>
+            {messages.length > 0 && (
+              <button onClick={() => setShowExport(!showExport)} style={{ background: showExport ? `${J.magenta}15` : "rgba(0,229,255,0.04)", border: `1px solid ${showExport ? J.magenta + "40" : J.border}`, color: showExport ? J.magenta : J.cyan, width: 30, height: 30, borderRadius: 2, cursor: "pointer", fontSize: 10, fontFamily: J.fontMono, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </button>
+            )}
+            <button onClick={onClose} style={{ background: "rgba(0,229,255,0.04)", border: `1px solid ${J.border}`, color: J.cyan, width: 30, height: 30, borderRadius: 2, cursor: "pointer", fontSize: 15, fontFamily: J.fontMono, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+            {showExport && (
+              <div style={{ position: "absolute", top: 34, right: 0, background: J.bgPanel, border: `1px solid ${J.magenta}20`, zIndex: 10, minWidth: 180, boxShadow: `0 8px 24px rgba(0,0,0,0.5)` }}>
+                <HudCorner position="tl" size={8} color={J.magenta} />
+                <HudCorner position="br" size={8} color={J.magenta} />
+                <button onClick={() => {
+                  let md = `# Connection: ${conn.srcName} ⟷ ${conn.tgtName}\n\n> ${conn.srcMap} ↔ ${conn.tgtMap}\n\n> ${conn.description}\n\n---\n\n`;
+                  messages.forEach(m => { md += m.role === "user" ? `**You:** ${m.content}\n\n` : `**JARVIS:** ${m.content}\n\n`; });
+                  const blob = new Blob([md], { type: "text/markdown" });
+                  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+                  a.download = `${conn.srcName}-${conn.tgtName}-connection.md`; a.click();
+                  URL.revokeObjectURL(a.href); setShowExport(false);
+                }} style={{ display: "block", width: "100%", background: "none", border: "none", borderBottom: `1px solid ${J.magenta}15`, padding: "10px 14px", fontSize: 11, fontFamily: J.fontBody, color: J.text, cursor: "pointer", textAlign: "left" }}>Markdown (.md)</button>
+                <button onClick={async () => {
+                  setIsExporting(true);
+                  try {
+                    const res = await fetch("/api/export/report", {
+                      method: "POST", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ node: { title: `${conn.srcName} ⟷ ${conn.tgtName}`, summary: conn.description, tags: [] }, subcategory: { title: "Cross-Map Connection" }, mapTitle: `${conn.srcMap} ↔ ${conn.tgtMap}`, messages, format: "report" }),
+                    });
+                    const { content } = await res.json();
+                    const { jsPDF } = await import("jspdf");
+                    const doc = new jsPDF(); const pw = doc.internal.pageSize.width; const ph = doc.internal.pageSize.height;
+                    doc.setFillColor(3, 8, 15); doc.rect(0, 0, pw, ph, "F");
+                    doc.setTextColor(255, 0, 110); doc.setFontSize(18);
+                    doc.text(`${conn.srcName}  ⟷  ${conn.tgtName}`, 20, 25);
+                    doc.setTextColor(192, 216, 232); doc.setFontSize(9);
+                    doc.text(`${conn.srcMap} ↔ ${conn.tgtMap}`, 20, 33);
+                    doc.setDrawColor(255, 0, 110); doc.line(20, 37, pw - 20, 37);
+                    doc.setTextColor(192, 216, 232); doc.setFontSize(11);
+                    const lines = doc.splitTextToSize(content, pw - 40); let y = 47;
+                    lines.forEach(line => { if (y > ph - 20) { doc.addPage(); doc.setFillColor(3, 8, 15); doc.rect(0, 0, pw, ph, "F"); doc.setTextColor(192, 216, 232); y = 20; } doc.text(line, 20, y); y += 6; });
+                    doc.save(`${conn.srcName}-${conn.tgtName}-report.pdf`);
+                  } catch {} finally { setIsExporting(false); setShowExport(false); }
+                }} disabled={isExporting} style={{ display: "block", width: "100%", background: "none", border: "none", borderBottom: `1px solid ${J.magenta}15`, padding: "10px 14px", fontSize: 11, fontFamily: J.fontBody, color: J.text, cursor: isExporting ? "wait" : "pointer", textAlign: "left" }}>{isExporting ? "GENERATING..." : "PDF Report"}</button>
+                <button onClick={async () => {
+                  setIsExporting(true);
+                  try {
+                    const res = await fetch("/api/export/report", {
+                      method: "POST", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ node: { title: `${conn.srcName} ⟷ ${conn.tgtName}`, summary: conn.description, tags: [] }, subcategory: { title: "Cross-Map Connection" }, mapTitle: `${conn.srcMap} ↔ ${conn.tgtMap}`, messages, format: "infographic" }),
+                    });
+                    const { content } = await res.json();
+                    let facts; try { facts = JSON.parse(content.replace(/```json|```/g, "").trim()); } catch { facts = [{ fact: content, category: "Connection", importance: 5 }]; }
+                    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet"><title>${conn.srcName} ⟷ ${conn.tgtName}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#03080F;color:#c0d8e8;font-family:'Rajdhani',monospace;padding:40px 20px;min-height:100vh}.header{text-align:center;margin-bottom:40px;border-bottom:1px solid rgba(255,0,110,0.2);padding-bottom:20px}.title{font-family:'Orbitron',sans-serif;color:#FF006E;font-size:24px;letter-spacing:2px}.subtitle{color:rgba(192,216,232,0.5);font-size:12px;letter-spacing:2px;margin-top:8px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;max-width:900px;margin:0 auto}.card{background:rgba(255,0,110,0.03);border:1px solid rgba(255,0,110,0.15);padding:20px;position:relative}.card::before{content:'';position:absolute;top:0;left:0;width:12px;height:12px;border-top:1px solid #FF006E;border-left:1px solid #FF006E}.card-cat{font-family:'Orbitron',sans-serif;color:#FF006E;font-size:9px;letter-spacing:2px;margin-bottom:8px;text-transform:uppercase}.card-fact{font-size:15px;line-height:1.6;color:#e0f0ff}</style></head><body><div class="header"><div class="title">${conn.srcName} ⟷ ${conn.tgtName}</div><div class="subtitle">${conn.srcMap} // ${conn.tgtMap}</div></div><div class="grid">${facts.map(f => `<div class="card"><div class="card-cat">${f.category || ""}</div><div class="card-fact">${f.fact}</div></div>`).join("")}</div></body></html>`;
+                    const blob = new Blob([html], { type: "text/html" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+                    a.download = `${conn.srcName}-${conn.tgtName}-infographic.html`; a.click(); URL.revokeObjectURL(a.href);
+                  } catch {} finally { setIsExporting(false); setShowExport(false); }
+                }} disabled={isExporting} style={{ display: "block", width: "100%", background: "none", border: "none", padding: "10px 14px", fontSize: 11, fontFamily: J.fontBody, color: J.text, cursor: isExporting ? "wait" : "pointer", textAlign: "left" }}>{isExporting ? "GENERATING..." : "Infographic (.html)"}</button>
+              </div>
+            )}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <span style={{ fontSize: 14, fontFamily: J.fontDisplay, fontWeight: 600, color: J.magenta }}>{conn.srcName}</span>
+          <span style={{ fontSize: 11, fontFamily: J.fontMono, color: J.textDim }}>⟷</span>
+          <span style={{ fontSize: 14, fontFamily: J.fontDisplay, fontWeight: 600, color: J.magenta }}>{conn.tgtName}</span>
+        </div>
+        <div style={{ fontSize: 9, fontFamily: J.fontMono, color: J.textDim, marginBottom: 8 }}>{conn.srcMap} ↔ {conn.tgtMap}</div>
+        <p style={{ fontSize: 12, lineHeight: 1.5, color: J.textMid, margin: 0, fontFamily: J.fontBody }}>{conn.description}</p>
+      </div>
+
+      {/* Messages */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px", display: "flex", flexDirection: "column", gap: 12, position: "relative", zIndex: 3 }}>
+        {messages.length === 0 && (
+          <div style={{ padding: "20px 0" }}>
+            <div style={{ fontSize: 11, fontFamily: J.fontDisplay, color: J.textDim, marginBottom: 14, textAlign: "center", letterSpacing: 2, textTransform: "uppercase" }}>EXPLORE THIS CONNECTION</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {quickPrompts.map((q, i) => (
+                <button key={i} onClick={() => sendMessage(q)}
+                  style={{ background: "rgba(255,0,110,0.03)", border: `1px solid ${J.magenta}15`, borderRadius: 2, padding: "11px 14px", fontSize: 12, fontFamily: J.fontBody, fontWeight: 500, color: J.textMid, cursor: "pointer", textAlign: "left", transition: "all 0.15s", letterSpacing: 0.3 }}
+                  onMouseEnter={e => { e.target.style.background = `${J.magenta}12`; e.target.style.borderColor = `${J.magenta}40`; e.target.style.color = J.magenta; }}
+                  onMouseLeave={e => { e.target.style.background = "rgba(255,0,110,0.03)"; e.target.style.borderColor = `${J.magenta}15`; e.target.style.color = J.textMid; }}
+                >{q}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        {messages.map((msg, i) => (
+          <div key={i} style={{ alignSelf: msg.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%" }}>
+            {msg.role === "assistant" && <div style={{ fontSize: 9, fontFamily: J.fontDisplay, color: J.magenta, marginBottom: 4, textTransform: "uppercase", letterSpacing: 3 }}>N.MAP // CONNECTION</div>}
+            <div style={{
+              background: msg.role === "user" ? `${J.magenta}15` : "rgba(255,0,110,0.04)",
+              border: `1px solid ${msg.role === "user" ? `${J.magenta}30` : `${J.magenta}12`}`,
+              borderRadius: 2, padding: "11px 15px", fontSize: 13, lineHeight: 1.7,
+              fontFamily: J.fontBody, fontWeight: 400,
+              color: msg.role === "user" ? "#e0f0ff" : J.text,
+              whiteSpace: "pre-wrap", wordBreak: "break-word",
+            }}>{msg.content}</div>
+          </div>
+        ))}
+        {isLoading && (
+          <div style={{ alignSelf: "flex-start", maxWidth: "88%" }}>
+            <div style={{ fontSize: 9, fontFamily: J.fontDisplay, color: J.magenta, marginBottom: 4, textTransform: "uppercase", letterSpacing: 3 }}>N.MAP // ANALYZING</div>
+            <div style={{ background: "rgba(255,0,110,0.04)", border: `1px solid ${J.magenta}12`, borderRadius: 2, padding: "13px 18px", display: "flex", gap: 6, alignItems: "center" }}>
+              {[0,1,2].map(j => <div key={j} style={{ width: 6, height: 6, background: J.magenta, animation: `jarvisPulse 1.2s ease-in-out ${j*0.15}s infinite` }} />)}
+              <span style={{ fontSize: 10, fontFamily: J.fontMono, color: J.textDim, marginLeft: 6, letterSpacing: 1 }}>ANALYZING...</span>
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input */}
+      <div style={{ padding: "14px 18px", borderTop: `1px solid ${J.magenta}15`, flexShrink: 0, position: "relative" }}>
+        <HudCorner position="bl" color={J.magenta} />
+        <HudCorner position="br" color={J.magenta} />
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", background: "rgba(255,0,110,0.03)", border: `1px solid ${J.magenta}15`, borderRadius: 2, padding: "4px 4px 4px 14px" }}>
+          <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown}
+            placeholder="Ask about this connection..." rows={1}
+            style={{ flex: 1, background: "transparent", border: "none", color: "#e0f0ff", fontSize: 13, fontFamily: J.fontBody, fontWeight: 500, resize: "none", outline: "none", padding: "8px 0", maxHeight: 80, lineHeight: 1.5 }}
+          />
+          <button onClick={() => sendMessage()} disabled={isLoading || !input.trim()}
+            style={{ background: input.trim() ? J.magenta : "rgba(255,0,110,0.06)", border: "none", borderRadius: 2, width: 38, height: 38, cursor: input.trim() ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: input.trim() ? `0 0 12px ${J.magenta}40` : "none" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={input.trim() ? "#fff" : "rgba(255,0,110,0.2)"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -762,6 +1074,21 @@ export default function NeuralMapApp() {
   const [dimensions, setDimensions] = useState({ w: 900, h: 700 });
   const [error, setError] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Feature 1: Save & Share
+  const [mapId, setMapId] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  // Feature 2: Export
+  const [showMapExport, setShowMapExport] = useState(false);
+  // Feature 3: Go Deeper
+  const [mapStack, setMapStack] = useState([]);
+  // Feature 4: Chat History
+  const chatCacheRef = useRef({});
+  // Feature 5: Connections
+  const [showConnections, setShowConnections] = useState(false);
+  const [connections, setConnections] = useState([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [selectedConnection, setSelectedConnection] = useState(null);
   const animFrameRef = useRef(null);
   const layoutRef = useRef({});
   const visibleNodesRef = useRef([]);
@@ -776,6 +1103,162 @@ export default function NeuralMapApp() {
     animDuration: 800,
     animType: null,
   });
+
+  // Feature 1: Load shared map from URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sharedId = params.get("map");
+    if (sharedId) {
+      setAppState("loading"); setCurrentTopic("Loading shared map...");
+      fetch(`/api/maps/${sharedId}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data?.map_data) {
+            setMapData(data.map_data); setCurrentTopic(data.topic); setMapId(sharedId); setAppState("map");
+          } else { setError("Shared map not found"); setAppState("landing"); }
+        })
+        .catch(() => { setError("Failed to load shared map"); setAppState("landing"); });
+    }
+  }, []);
+
+  // Feature 1: Save map
+  const saveMap = async () => {
+    if (isSaving || !mapData) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch("/api/maps", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: currentTopic, map_data: mapData }),
+      });
+      const { id } = await res.json();
+      if (id) {
+        setMapId(id);
+        // Flush chat cache to Supabase
+        const cacheEntries = Object.entries(chatCacheRef.current);
+        if (cacheEntries.length > 0) {
+          await Promise.all(cacheEntries.map(([nodeId, messages]) =>
+            fetch(`/api/maps/${id}/chat`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ nodeId, messages }),
+            }).catch(() => {})
+          ));
+        }
+      }
+    } catch {} finally { setIsSaving(false); }
+  };
+
+  const copyShareLink = () => {
+    if (!mapId) return;
+    navigator.clipboard.writeText(`${window.location.origin}?map=${mapId}`);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
+
+  // Feature 2: Export map as PNG
+  const exportPNG = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const link = document.createElement("a");
+    link.download = `neural-map-${currentTopic.replace(/\s+/g, "-")}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+    setShowMapExport(false);
+  };
+
+  // Feature 2: Export map as PDF
+  const exportMapPDF = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !mapData) return;
+    const { jsPDF } = await import("jspdf");
+    const doc = new jsPDF({ orientation: "landscape" });
+    const pw = doc.internal.pageSize.width; const ph = doc.internal.pageSize.height;
+    doc.setFillColor(3, 8, 15); doc.rect(0, 0, pw, ph, "F");
+    doc.setTextColor(0, 229, 255); doc.setFontSize(22);
+    doc.text((mapData.title || currentTopic).toUpperCase(), 20, 25);
+    doc.setTextColor(192, 216, 232); doc.setFontSize(9);
+    doc.text(`${totalNodes} nodes // ${totalSubs} categories`, 20, 33);
+    doc.setDrawColor(0, 229, 255); doc.line(20, 37, pw - 20, 37);
+    const imgData = canvas.toDataURL("image/png");
+    doc.addImage(imgData, "PNG", 10, 42, pw - 20, ph - 55);
+    // Node directory page
+    doc.addPage(); doc.setFillColor(3, 8, 15); doc.rect(0, 0, pw, ph, "F");
+    doc.setTextColor(0, 229, 255); doc.setFontSize(16); doc.text("NODE DIRECTORY", 20, 20);
+    let y = 32;
+    mapData.subcategories.forEach(sub => {
+      if (y > ph - 25) { doc.addPage(); doc.setFillColor(3, 8, 15); doc.rect(0, 0, pw, ph, "F"); y = 20; }
+      doc.setTextColor(0, 229, 255); doc.setFontSize(11); doc.text(sub.title.toUpperCase(), 20, y); y += 6;
+      doc.setTextColor(120, 160, 180); doc.setFontSize(8); doc.text(sub.summary || "", 24, y); y += 6;
+      sub.topics.forEach(t => {
+        if (y > ph - 15) { doc.addPage(); doc.setFillColor(3, 8, 15); doc.rect(0, 0, pw, ph, "F"); y = 20; }
+        doc.setTextColor(192, 216, 232); doc.setFontSize(9); doc.text(`• ${t.title}`, 28, y); y += 5;
+        doc.setTextColor(100, 130, 150); doc.setFontSize(7); doc.text(t.summary || "", 34, y); y += 6;
+      });
+      y += 4;
+    });
+    doc.save(`neural-map-${currentTopic.replace(/\s+/g, "-")}.pdf`);
+    setShowMapExport(false);
+  };
+
+  // Feature 3: Go Deeper
+  const goDeeper = () => {
+    const state = treeStateRef.current;
+    if (!state.expandedSubId || !mapData || mapStack.length >= 7) return;
+    const sub = mapData.subcategories.find(s => s.id === state.expandedSubId);
+    if (!sub) return;
+    setMapStack(prev => [...prev, {
+      mapData, topic: currentTopic, mapId,
+      treeState: { ...state }, chatCache: { ...chatCacheRef.current },
+      pan: { ...panRef.current },
+    }]);
+    chatCacheRef.current = {};
+    setMapId(null); setSelectedNode(null); setSelectedSub(null);
+    generateMap(sub.title);
+  };
+
+  const goBack = (targetIndex) => {
+    const idx = targetIndex ?? mapStack.length - 1;
+    if (idx < 0 || idx >= mapStack.length) return;
+    const snapshot = mapStack[idx];
+    setMapData(snapshot.mapData); setCurrentTopic(snapshot.topic); setMapId(snapshot.mapId);
+    treeStateRef.current = snapshot.treeState;
+    chatCacheRef.current = snapshot.chatCache;
+    panRef.current = snapshot.pan;
+    setAppState("map"); setSelectedNode(null); setSelectedSub(null);
+    setMapStack(prev => prev.slice(0, idx));
+  };
+
+  // Feature 5: Analyze connections across maps
+  const analyzeConnections = async () => {
+    if (isAnalyzing) return;
+    // Collect all maps: current + stack (only saved ones with IDs)
+    const allMaps = [];
+    if (mapId && mapData) allMaps.push({ id: mapId, topic: currentTopic, map_data: mapData });
+    mapStack.forEach(s => { if (s.mapId && s.mapData) allMaps.push({ id: s.mapId, topic: s.topic, map_data: s.mapData }); });
+
+    if (allMaps.length < 2) {
+      // If not enough saved maps, save current first
+      if (!mapId && mapData) {
+        await saveMap();
+        // Re-collect after save
+        const updatedMaps = [{ id: mapId, topic: currentTopic, map_data: mapData }];
+        mapStack.forEach(s => { if (s.mapId && s.mapData) updatedMaps.push({ id: s.mapId, topic: s.topic, map_data: s.mapData }); });
+        if (updatedMaps.filter(m => m.id).length < 2) return;
+      } else return;
+    }
+
+    setIsAnalyzing(true);
+    try {
+      const res = await fetch("/api/connections", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maps: allMaps }),
+      });
+      const data = await res.json();
+      if (data.connections) setConnections(data.connections);
+    } catch {} finally { setIsAnalyzing(false); }
+  };
+
+  // Check if we have enough maps for connections
+  const savedMapCount = (mapId ? 1 : 0) + mapStack.filter(s => s.mapId).length;
 
   function startAnimation(type, subId) {
     const s = treeStateRef.current;
@@ -1222,17 +1705,59 @@ export default function NeuralMapApp() {
           {!isFullscreen && (
           <div style={{ padding: mobile ? "8px 10px" : "10px 18px", borderBottom: `1px solid ${J.border}`, display: "flex", alignItems: mobile ? "flex-start" : "center", justifyContent: "space-between", flexShrink: 0, zIndex: 40, background: "rgba(3,8,15,0.95)", backdropFilter: "blur(10px)", flexWrap: "wrap", gap: mobile ? 6 : 8, flexDirection: mobile ? "column" : "row" }}>
             <div style={{ display: "flex", alignItems: "center", gap: mobile ? 8 : 12, flexWrap: "wrap" }}>
-              <button onClick={() => { setAppState("landing"); setMapData(null); setSelectedNode(null); setSelectedSub(null); }}
+              <button onClick={() => { setAppState("landing"); setMapData(null); setSelectedNode(null); setSelectedSub(null); setMapId(null); setMapStack([]); chatCacheRef.current = {}; setShowMapExport(false); }}
                 style={{ background: "rgba(0,229,255,0.04)", border: `1px solid ${J.border}`, borderRadius: 2, padding: mobile ? "5px 10px" : "6px 14px", fontSize: mobile ? 10 : 11, fontFamily: J.fontDisplay, fontWeight: 600, color: J.cyan, cursor: "pointer", minHeight: mobile ? 28 : 32, letterSpacing: 2 }}>◁ NEW</button>
               <div style={{ width: 3, height: 14, background: J.cyan, boxShadow: `0 0 8px ${J.cyanGlow}` }} />
               <span style={{ fontSize: mobile ? 11 : 14, fontFamily: J.fontDisplay, fontWeight: 700, color: J.cyan, letterSpacing: mobile ? 1 : 3, textTransform: "uppercase", textShadow: `0 0 12px ${J.cyanGlow}` }}>{mapData.title || currentTopic}</span>
               <span style={{ fontSize: mobile ? 9 : 11, fontFamily: J.fontMono, color: J.textDim, letterSpacing: 1 }}>{totalNodes} NODES // {totalSubs} CATEGORIES</span>
             </div>
-            <div style={{ display: "flex", gap: mobile ? 4 : 6, flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: mobile ? 4 : 6, flexWrap: "wrap", alignItems: "center", position: "relative" }}>
+              {/* Save / Share */}
+              {!mapId ? (
+                <button onClick={saveMap} disabled={isSaving}
+                  style={{ background: "rgba(0,229,255,0.04)", border: `1px solid ${J.border}`, borderRadius: 2, padding: mobile ? "4px 8px" : "6px 14px", fontSize: mobile ? 9 : 11, fontFamily: J.fontDisplay, fontWeight: 600, color: J.cyan, cursor: isSaving ? "wait" : "pointer", minHeight: mobile ? 26 : 32, letterSpacing: 2 }}>{isSaving ? "SAVING..." : "SAVE"}</button>
+              ) : (
+                <button onClick={copyShareLink}
+                  style={{ background: linkCopied ? `${J.cyan}15` : "rgba(0,229,255,0.04)", border: `1px solid ${linkCopied ? J.cyan + "40" : J.border}`, borderRadius: 2, padding: mobile ? "4px 8px" : "6px 14px", fontSize: mobile ? 9 : 11, fontFamily: J.fontDisplay, fontWeight: 600, color: J.cyan, cursor: "pointer", minHeight: mobile ? 26 : 32, letterSpacing: 2 }}>{linkCopied ? "COPIED!" : "LINK"}</button>
+              )}
+              {/* Export dropdown */}
+              <div style={{ position: "relative" }}>
+                <button onClick={() => setShowMapExport(!showMapExport)}
+                  style={{ background: showMapExport ? `${J.cyan}15` : "rgba(0,229,255,0.04)", border: `1px solid ${showMapExport ? J.cyan + "40" : J.border}`, borderRadius: 2, padding: mobile ? "4px 8px" : "6px 14px", fontSize: mobile ? 9 : 11, fontFamily: J.fontDisplay, fontWeight: 600, color: J.cyan, cursor: "pointer", minHeight: mobile ? 26 : 32, letterSpacing: 2 }}>EXPORT</button>
+                {showMapExport && (
+                  <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, background: J.bgPanel, border: `1px solid ${J.border}`, zIndex: 60, minWidth: 140, boxShadow: `0 8px 24px rgba(0,0,0,0.5)` }}>
+                    <button onClick={exportPNG} style={{ display: "block", width: "100%", background: "none", border: "none", borderBottom: `1px solid ${J.border}`, padding: "10px 14px", fontSize: 11, fontFamily: J.fontBody, color: J.text, cursor: "pointer", textAlign: "left" }}>PNG Image</button>
+                    <button onClick={exportMapPDF} style={{ display: "block", width: "100%", background: "none", border: "none", padding: "10px 14px", fontSize: 11, fontFamily: J.fontBody, color: J.text, cursor: "pointer", textAlign: "left" }}>PDF Report</button>
+                  </div>
+                )}
+              </div>
+              {/* Go Deeper */}
+              {treeStateRef.current.phase === "expanded-l3" && mapStack.length < 7 && (
+                <button onClick={goDeeper}
+                  style={{ background: `${J.amber}15`, border: `1px solid ${J.amber}40`, borderRadius: 2, padding: mobile ? "4px 8px" : "6px 14px", fontSize: mobile ? 9 : 11, fontFamily: J.fontDisplay, fontWeight: 600, color: J.amber, cursor: "pointer", minHeight: mobile ? 26 : 32, letterSpacing: 2 }}>GO DEEPER</button>
+              )}
+              {/* Connections */}
+              {savedMapCount >= 2 && (
+                <button onClick={() => setShowConnections(!showConnections)}
+                  style={{ background: showConnections ? `${J.magenta}15` : "rgba(0,229,255,0.04)", border: `1px solid ${showConnections ? J.magenta + "40" : J.border}`, borderRadius: 2, padding: mobile ? "4px 8px" : "6px 14px", fontSize: mobile ? 9 : 11, fontFamily: J.fontDisplay, fontWeight: 600, color: showConnections ? J.magenta : J.cyan, cursor: "pointer", minHeight: mobile ? 26 : 32, letterSpacing: 2 }}>CONNECTIONS</button>
+              )}
               {!mobile && <button onClick={() => setIsFullscreen(true)}
                 style={{ background: "rgba(0,229,255,0.04)", border: `1px solid ${J.border}`, borderRadius: 2, padding: "6px 14px", fontSize: 11, fontFamily: J.fontDisplay, fontWeight: 600, color: J.cyan, cursor: "pointer", minHeight: 32, letterSpacing: 2 }}>⛶ EXPAND</button>}
             </div>
           </div>
+          )}
+
+          {/* Breadcrumb */}
+          {mapStack.length > 0 && !isFullscreen && (
+            <div style={{ padding: mobile ? "5px 10px" : "6px 18px", borderBottom: `1px solid ${J.border}`, display: "flex", alignItems: "center", gap: 8, background: "rgba(3,8,15,0.95)", zIndex: 40, flexShrink: 0, overflow: "auto" }}>
+              {mapStack.map((s, i) => (
+                <span key={i} style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <button onClick={() => goBack(i)} style={{ background: "none", border: "none", color: J.cyan, fontFamily: J.fontDisplay, fontSize: mobile ? 9 : 10, letterSpacing: 2, textTransform: "uppercase", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 3, textDecorationColor: `${J.cyan}40` }}>{s.topic}</button>
+                  <span style={{ color: J.textDim, fontFamily: J.fontMono, fontSize: 10 }}>▸</span>
+                </span>
+              ))}
+              <span style={{ color: "#fff", fontFamily: J.fontDisplay, fontSize: mobile ? 9 : 10, letterSpacing: 2, textTransform: "uppercase", flexShrink: 0 }}>{currentTopic}</span>
+            </div>
           )}
 
           <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
@@ -1254,6 +1779,106 @@ export default function NeuralMapApp() {
               onTouchMove={(e) => { if (panRef.current.isPanning && e.touches[0]) { const rect = canvasRef.current?.getBoundingClientRect(); if (!rect) return; panRef.current.x = (e.touches[0].clientX - rect.left) - panRef.current.startX; panRef.current.y = (e.touches[0].clientY - rect.top) - panRef.current.startY; } }}
               onTouchEnd={() => { panRef.current.isPanning = false; }}
             />
+
+            {/* Connections Panel */}
+            {showConnections && (
+              <div style={{
+                position: "absolute", top: 0, left: 0, bottom: 0,
+                width: mobile ? "100%" : 380, maxWidth: mobile ? "100%" : 420,
+                background: J.bgPanel, backdropFilter: "blur(30px)",
+                borderRight: `1px solid ${J.magenta}25`,
+                display: "flex", flexDirection: "column", zIndex: 35,
+                boxShadow: `4px 0 40px rgba(0,0,0,0.6)`,
+              }}>
+                <ScanLine />
+                <div style={{ padding: "16px 18px", borderBottom: `1px solid ${J.magenta}20`, flexShrink: 0, position: "relative" }}>
+                  <HudCorner position="tl" color={J.magenta} />
+                  <HudCorner position="tr" color={J.magenta} />
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 3, height: 16, background: J.magenta, boxShadow: `0 0 8px ${J.magenta}80` }} />
+                      <span style={{ fontSize: 10, fontFamily: J.fontDisplay, color: J.magenta, textTransform: "uppercase", letterSpacing: 3, fontWeight: 600 }}>CROSS-MAP CONNECTIONS</span>
+                    </div>
+                    <button onClick={() => setShowConnections(false)} style={{ background: "rgba(0,229,255,0.04)", border: `1px solid ${J.border}`, color: J.cyan, width: 30, height: 30, borderRadius: 2, cursor: "pointer", fontSize: 15, fontFamily: J.fontMono, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+                  </div>
+                  <p style={{ fontSize: 11, fontFamily: J.fontBody, color: J.textMid, lineHeight: 1.5, margin: 0 }}>
+                    Analyze connections between topics across your saved maps.
+                  </p>
+                  <button onClick={analyzeConnections} disabled={isAnalyzing}
+                    style={{ marginTop: 12, width: "100%", background: isAnalyzing ? `${J.magenta}08` : `${J.magenta}15`, border: `1px solid ${J.magenta}40`, borderRadius: 2, padding: "10px", fontSize: 11, fontFamily: J.fontDisplay, fontWeight: 600, color: J.magenta, cursor: isAnalyzing ? "wait" : "pointer", letterSpacing: 2, transition: "all 0.2s" }}>
+                    {isAnalyzing ? "ANALYZING..." : "ANALYZE CONNECTIONS"}
+                  </button>
+                  <div style={{ marginTop: 8, fontSize: 9, fontFamily: J.fontMono, color: J.textDim, letterSpacing: 1 }}>
+                    {savedMapCount} SAVED MAPS AVAILABLE
+                  </div>
+                </div>
+                <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px", display: "flex", flexDirection: "column", gap: 10, position: "relative", zIndex: 3 }}>
+                  {connections.length === 0 && !isAnalyzing && (
+                    <div style={{ padding: "30px 0", textAlign: "center" }}>
+                      <div style={{ fontSize: 11, fontFamily: J.fontDisplay, color: J.textDim, letterSpacing: 3, marginBottom: 8 }}>NO CONNECTIONS YET</div>
+                      <div style={{ fontSize: 12, fontFamily: J.fontBody, color: J.textMid, lineHeight: 1.5 }}>Click ANALYZE to discover<br />cross-map topic links.</div>
+                    </div>
+                  )}
+                  {isAnalyzing && (
+                    <div style={{ padding: "30px 0", textAlign: "center" }}>
+                      <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 12 }}>
+                        {[0,1,2].map(j => <div key={j} style={{ width: 6, height: 6, background: J.magenta, animation: `jarvisPulse 1.2s ease-in-out ${j*0.15}s infinite` }} />)}
+                      </div>
+                      <div style={{ fontSize: 10, fontFamily: J.fontMono, color: J.textDim, letterSpacing: 1 }}>ANALYZING CROSS-MAP PATTERNS...</div>
+                    </div>
+                  )}
+                  {connections.map((conn, i) => {
+                    // Find topic names from current map or stack
+                    const findTopicName = (mapIdTarget, nodeId) => {
+                      if (mapId === mapIdTarget && mapData) {
+                        for (const sub of mapData.subcategories) {
+                          const t = sub.topics.find(t => t.id === nodeId);
+                          if (t) return t.title;
+                        }
+                      }
+                      for (const s of mapStack) {
+                        if (s.mapId === mapIdTarget && s.mapData) {
+                          for (const sub of s.mapData.subcategories) {
+                            const t = sub.topics.find(t => t.id === nodeId);
+                            if (t) return t.title;
+                          }
+                        }
+                      }
+                      return nodeId;
+                    };
+                    const findMapTopic = (mid) => {
+                      if (mapId === mid) return currentTopic;
+                      const s = mapStack.find(s => s.mapId === mid);
+                      return s ? s.topic : "Unknown";
+                    };
+                    const srcName = findTopicName(conn.source_map_id, conn.source_node_id);
+                    const tgtName = findTopicName(conn.target_map_id, conn.target_node_id);
+                    const srcMap = findMapTopic(conn.source_map_id);
+                    const tgtMap = findMapTopic(conn.target_map_id);
+                    const isActive = selectedConnection && selectedConnection._connIndex === i;
+                    return (
+                      <div key={i} onClick={() => setSelectedConnection({ ...conn, srcName, tgtName, srcMap, tgtMap, _connIndex: i })}
+                        style={{ background: isActive ? "rgba(255,0,110,0.08)" : "rgba(255,0,110,0.03)", border: `1px solid ${isActive ? J.magenta + "50" : J.magenta + "20"}`, padding: "12px 14px", position: "relative", cursor: "pointer", transition: "all 0.15s" }}>
+                        <HudCorner position="tl" size={8} color={J.magenta} />
+                        <HudCorner position="br" size={8} color={J.magenta} />
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                          <span style={{ fontSize: 10, fontFamily: J.fontDisplay, fontWeight: 600, color: J.magenta }}>{srcName}</span>
+                          <span style={{ fontSize: 9, fontFamily: J.fontMono, color: J.textDim }}>⟷</span>
+                          <span style={{ fontSize: 10, fontFamily: J.fontDisplay, fontWeight: 600, color: J.magenta }}>{tgtName}</span>
+                        </div>
+                        <div style={{ fontSize: 9, fontFamily: J.fontMono, color: J.textDim, marginBottom: 6 }}>
+                          {srcMap} ↔ {tgtMap}
+                        </div>
+                        <div style={{ fontSize: 11, fontFamily: J.fontBody, color: J.textMid, lineHeight: 1.5 }}>
+                          {conn.description}
+                        </div>
+                        <div style={{ marginTop: 8, fontSize: 8, fontFamily: J.fontMono, color: isActive ? J.magenta : J.textDim, letterSpacing: 2 }}>{isActive ? "CHAT OPEN ▸" : "CLICK TO EXPLORE ▸"}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {isFullscreen && (
               <button onClick={() => setIsFullscreen(false)}
@@ -1302,7 +1927,7 @@ export default function NeuralMapApp() {
             </div>
             )}
 
-            {selectedNode && selectedSub && mapData && (
+            {selectedNode && selectedSub && mapData && !selectedConnection && (
               <ChatPanel
                 node={selectedNode}
                 subcategory={selectedSub}
@@ -1311,10 +1936,15 @@ export default function NeuralMapApp() {
                 nodeColor={selectedSub.color || J.cyan}
                 onClose={() => setSelectedNode(null)}
                 onNavigate={handleNavigate}
+                chatCacheRef={chatCacheRef}
+                mapId={mapId}
               />
             )}
 
-            {!selectedNode && (
+            {/* Connection Chat — right side panel for exploring a cross-map connection */}
+            {selectedConnection && <ConnectionChat conn={selectedConnection} onClose={() => setSelectedConnection(null)} mobile={mobile} />}
+
+            {!selectedNode && !selectedConnection && (
               <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "rgba(3,8,15,0.9)", backdropFilter: "blur(10px)", border: `1px solid ${J.border}`, padding: mobile ? "8px 14px" : "10px 24px", fontSize: mobile ? 9 : 10, fontFamily: J.fontMono, color: J.textDim, pointerEvents: "none", textAlign: "center", letterSpacing: mobile ? 1 : 2, whiteSpace: "nowrap" }}>
                 {treeStateRef.current.phase === "idle" ? (mobile ? "TAP CENTER NODE TO BEGIN" : "CLICK CENTER NODE TO EXPAND \u00B7 SCROLL TO ZOOM") : (mobile ? "TAP NODES TO EXPLORE" : "CLICK NODES TO EXPLORE \u00B7 SCROLL TO ZOOM \u00B7 DRAG TO PAN")}
               </div>

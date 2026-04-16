@@ -2,3 +2,4 @@ node_modules/
 .next/
 .env.local
 .vercel
+Gemini_Generated_Image_*
