@@ -11,11 +11,38 @@ export async function POST(req) {
 
     let prompt;
     if (format === "infographic") {
-      prompt = `Extract the 5-8 most important facts from this conversation about "${node.title}" (under "${subcategory.title}" in the "${mapTitle}" knowledge map). Return ONLY valid JSON array:
+      prompt = `Create a structured infographic layout from this conversation about "${node.title}" (under "${subcategory.title}" in the "${mapTitle}" knowledge map).
 
-[{"fact":"Clear statement of the fact","category":"Topic category","importance":5}]
+Return ONLY valid JSON with this structure:
+{
+  "headline": "A compelling, magazine-style headline (not just the topic name)",
+  "subtitle": "A one-line hook or context statement",
+  "heroStat": { "value": "Key number or date", "label": "What it represents" },
+  "sections": [
+    {
+      "title": "Section heading",
+      "icon": "single emoji that represents this section",
+      "content": "2-3 sentence summary of this aspect",
+      "highlights": ["Key fact 1", "Key fact 2"]
+    }
+  ],
+  "timeline": [
+    { "date": "Date or period", "event": "What happened", "significance": "Why it matters" }
+  ],
+  "keyFigures": [
+    { "name": "Person or entity name", "role": "Their role/title", "contribution": "What they did" }
+  ],
+  "pullQuote": "The single most striking or surprising fact from the conversation",
+  "bottomLine": "One-sentence takeaway"
+}
 
-importance: 5=critical, 1=minor. Include specific dates, names, numbers.
+RULES:
+- 3-5 sections covering different aspects discussed
+- 3-6 timeline entries if chronological events were discussed (empty array if not applicable)
+- 2-4 key figures if people were discussed (empty array if not applicable)
+- The headline should be compelling and specific, like a magazine cover
+- Include specific dates, numbers, names — no vague statements
+- Only include information that was actually discussed in the conversation
 
 Conversation:
 ${conversation}`;

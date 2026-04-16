@@ -176,6 +176,136 @@ function computeTreeLayout(mapData, w, h) {
   return layout;
 }
 
+// ─── INFOGRAPHIC HTML BUILDER ────────────────────────────────────────────────
+
+function buildInfographicHTML(info, topicTitle, mapTitle, subTitle) {
+  const sections = info.sections || [];
+  const timeline = info.timeline || [];
+  const figures = info.keyFigures || [];
+  const hl = info.headline || topicTitle;
+  const sub = info.subtitle || `${mapTitle} // ${subTitle}`;
+  const heroStat = info.heroStat;
+  const quote = info.pullQuote || "";
+  const bottom = info.bottomLine || "";
+
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800&family=Rajdhani:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<title>${hl}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#03080F;color:#c0d8e8;font-family:'Rajdhani',sans-serif;min-height:100vh;overflow-x:hidden}
+.scan{position:fixed;inset:0;pointer-events:none;z-index:100;opacity:0.02;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,229,255,0.15) 2px,rgba(0,229,255,0.15) 3px)}
+
+/* Hero */
+.hero{text-align:center;padding:60px 24px 48px;position:relative;border-bottom:1px solid rgba(0,229,255,0.1)}
+.hero::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:200px;height:200px;background:radial-gradient(circle,rgba(0,229,255,0.06) 0%,transparent 70%);pointer-events:none}
+.hero-label{font-family:'Orbitron',sans-serif;font-size:10px;color:rgba(0,229,255,0.5);letter-spacing:6px;text-transform:uppercase;margin-bottom:16px}
+.hero-title{font-family:'Orbitron',sans-serif;font-size:clamp(24px,5vw,42px);font-weight:800;color:#fff;letter-spacing:2px;line-height:1.15;margin-bottom:12px}
+.hero-title span{color:#00E5FF;text-shadow:0 0 30px rgba(0,229,255,0.4)}
+.hero-sub{font-size:16px;color:rgba(192,216,232,0.5);letter-spacing:1px;max-width:600px;margin:0 auto 24px}
+.hero-stat{display:inline-flex;flex-direction:column;align-items:center;padding:16px 32px;border:1px solid rgba(0,229,255,0.2);background:rgba(0,229,255,0.03);margin-top:8px}
+.hero-stat-value{font-family:'Orbitron',sans-serif;font-size:32px;font-weight:700;color:#00E5FF;text-shadow:0 0 20px rgba(0,229,255,0.4)}
+.hero-stat-label{font-size:11px;color:rgba(192,216,232,0.4);letter-spacing:3px;text-transform:uppercase;margin-top:4px}
+
+/* Layout */
+.container{max-width:960px;margin:0 auto;padding:0 24px}
+
+/* Sections */
+.sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;padding:48px 0}
+.section{background:rgba(0,229,255,0.02);border:1px solid rgba(0,229,255,0.08);padding:28px 24px;position:relative}
+.section::before{content:'';position:absolute;top:0;left:0;width:16px;height:16px;border-top:2px solid #00E5FF;border-left:2px solid #00E5FF}
+.section::after{content:'';position:absolute;bottom:0;right:0;width:16px;height:16px;border-bottom:2px solid #00E5FF;border-right:2px solid #00E5FF}
+.section-icon{font-size:28px;margin-bottom:12px}
+.section-title{font-family:'Orbitron',sans-serif;font-size:13px;color:#00E5FF;letter-spacing:3px;text-transform:uppercase;margin-bottom:12px;font-weight:600}
+.section-content{font-size:15px;line-height:1.7;color:rgba(224,240,255,0.8);margin-bottom:16px}
+.section-highlights{list-style:none;display:flex;flex-direction:column;gap:6px}
+.section-highlights li{font-size:13px;color:rgba(0,229,255,0.7);padding-left:16px;position:relative;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px}
+.section-highlights li::before{content:'▸';position:absolute;left:0;color:#00E5FF}
+
+/* Pull Quote */
+.quote-section{padding:40px 0;text-align:center;position:relative}
+.quote-section::before{content:'';display:block;width:60px;height:1px;background:linear-gradient(90deg,transparent,#00E5FF,transparent);margin:0 auto 32px}
+.quote{font-size:clamp(18px,3vw,24px);font-weight:300;color:#fff;line-height:1.5;max-width:700px;margin:0 auto;font-style:italic}
+.quote::before{content:'"';color:#00E5FF;font-size:48px;font-family:'Orbitron',sans-serif;display:block;margin-bottom:-8px;opacity:0.5}
+
+/* Timeline */
+.timeline-section{padding:48px 0;border-top:1px solid rgba(0,229,255,0.08)}
+.timeline-heading{font-family:'Orbitron',sans-serif;font-size:12px;color:rgba(0,229,255,0.5);letter-spacing:4px;text-transform:uppercase;text-align:center;margin-bottom:32px}
+.timeline{position:relative;padding-left:32px}
+.timeline::before{content:'';position:absolute;left:8px;top:0;bottom:0;width:1px;background:linear-gradient(180deg,#00E5FF,rgba(0,229,255,0.1))}
+.tl-item{position:relative;padding-bottom:28px}
+.tl-item::before{content:'';position:absolute;left:-28px;top:6px;width:10px;height:10px;background:#00E5FF;box-shadow:0 0 8px rgba(0,229,255,0.5)}
+.tl-date{font-family:'Orbitron',sans-serif;font-size:11px;color:#00E5FF;letter-spacing:2px;margin-bottom:4px;font-weight:600}
+.tl-event{font-size:16px;color:#e0f0ff;font-weight:600;margin-bottom:4px}
+.tl-sig{font-size:13px;color:rgba(192,216,232,0.5);line-height:1.5}
+
+/* Key Figures */
+.figures-section{padding:48px 0;border-top:1px solid rgba(0,229,255,0.08)}
+.figures-heading{font-family:'Orbitron',sans-serif;font-size:12px;color:rgba(0,229,255,0.5);letter-spacing:4px;text-transform:uppercase;text-align:center;margin-bottom:32px}
+.figures{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+.figure{text-align:center;padding:24px 16px;border:1px solid rgba(0,229,255,0.06);background:rgba(0,229,255,0.02)}
+.figure-name{font-family:'Orbitron',sans-serif;font-size:14px;color:#00E5FF;letter-spacing:1px;margin-bottom:4px;font-weight:600}
+.figure-role{font-size:11px;color:rgba(192,216,232,0.4);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+.figure-contrib{font-size:13px;color:rgba(224,240,255,0.7);line-height:1.5}
+
+/* Bottom */
+.bottom-line{text-align:center;padding:40px 24px 60px;border-top:1px solid rgba(0,229,255,0.08)}
+.bottom-label{font-family:'Orbitron',sans-serif;font-size:9px;color:rgba(0,229,255,0.4);letter-spacing:4px;text-transform:uppercase;margin-bottom:12px}
+.bottom-text{font-size:18px;color:#e0f0ff;max-width:600px;margin:0 auto;line-height:1.6;font-weight:600}
+.footer{text-align:center;padding:20px;opacity:0.2;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:2px;color:#00E5FF}
+</style></head>
+<body>
+<div class="scan"></div>
+
+<div class="hero">
+  <div class="hero-label">NEURAL MAP // INFOGRAPHIC</div>
+  <h1 class="hero-title">${hl.includes(":") ? hl.replace(/(.*?):(.*)/, "$1:<br><span>$2</span>") : `<span>${hl}</span>`}</h1>
+  <div class="hero-sub">${sub}</div>
+  ${heroStat ? `<div class="hero-stat"><div class="hero-stat-value">${heroStat.value}</div><div class="hero-stat-label">${heroStat.label}</div></div>` : ""}
+</div>
+
+<div class="container">
+  ${sections.length > 0 ? `<div class="sections">${sections.map(s => `
+    <div class="section">
+      <div class="section-icon">${s.icon || "◆"}</div>
+      <div class="section-title">${s.title}</div>
+      <div class="section-content">${s.content}</div>
+      ${s.highlights && s.highlights.length > 0 ? `<ul class="section-highlights">${s.highlights.map(h => `<li>${h}</li>`).join("")}</ul>` : ""}
+    </div>`).join("")}</div>` : ""}
+
+  ${quote ? `<div class="quote-section"><div class="quote">${quote}</div></div>` : ""}
+
+  ${timeline.length > 0 ? `<div class="timeline-section">
+    <div class="timeline-heading">TIMELINE</div>
+    <div class="timeline">${timeline.map(t => `
+      <div class="tl-item">
+        <div class="tl-date">${t.date}</div>
+        <div class="tl-event">${t.event}</div>
+        <div class="tl-sig">${t.significance}</div>
+      </div>`).join("")}</div>
+  </div>` : ""}
+
+  ${figures.length > 0 ? `<div class="figures-section">
+    <div class="figures-heading">KEY FIGURES</div>
+    <div class="figures">${figures.map(f => `
+      <div class="figure">
+        <div class="figure-name">${f.name}</div>
+        <div class="figure-role">${f.role}</div>
+        <div class="figure-contrib">${f.contribution}</div>
+      </div>`).join("")}</div>
+  </div>` : ""}
+
+  ${bottom ? `<div class="bottom-line">
+    <div class="bottom-label">THE BOTTOM LINE</div>
+    <div class="bottom-text">${bottom}</div>
+  </div>` : ""}
+</div>
+
+<div class="footer">GENERATED BY NEURAL MAP // ${mapTitle.toUpperCase()}</div>
+</body></html>`;
+}
+
 // ─── HUD DECORATIVE ELEMENTS ────────────────────────────────────────────────
 
 function HudCorner({ position, size = 20, color = J.cyan }) {
@@ -408,27 +538,9 @@ function ChatPanel({ node, subcategory, siblings, mapTitle, nodeColor, onClose, 
         body: JSON.stringify({ node, subcategory, mapTitle, messages, format: "infographic" }),
       });
       const { content } = await res.json();
-      let facts;
-      try { facts = JSON.parse(content.replace(/```json|```/g, "").trim()); } catch { facts = [{ fact: content, category: "General", importance: 5 }]; }
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet">
-<title>${node.title} — Neural Map</title>
-<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#03080F;color:#c0d8e8;font-family:'Rajdhani',monospace;padding:40px 20px;min-height:100vh}
-.header{text-align:center;margin-bottom:40px;border-bottom:1px solid rgba(0,229,255,0.15);padding-bottom:20px}
-.title{font-family:'Orbitron',sans-serif;color:#00E5FF;font-size:28px;letter-spacing:3px;text-shadow:0 0 20px rgba(0,229,255,0.4)}
-.subtitle{color:rgba(192,216,232,0.5);font-size:12px;letter-spacing:2px;margin-top:8px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;max-width:900px;margin:0 auto}
-.card{background:rgba(0,229,255,0.03);border:1px solid rgba(0,229,255,0.12);padding:20px;position:relative}
-.card::before{content:'';position:absolute;top:0;left:0;width:12px;height:12px;border-top:1px solid #00E5FF;border-left:1px solid #00E5FF}
-.card::after{content:'';position:absolute;bottom:0;right:0;width:12px;height:12px;border-bottom:1px solid #00E5FF;border-right:1px solid #00E5FF}
-.card-cat{font-family:'Orbitron',sans-serif;color:#00E5FF;font-size:9px;letter-spacing:2px;margin-bottom:8px;text-transform:uppercase}
-.card-fact{font-size:15px;line-height:1.6;color:#e0f0ff}
-.importance{display:flex;gap:3px;margin-top:10px}
-.dot{width:6px;height:6px;background:rgba(0,229,255,0.15)}
-.dot.active{background:#00E5FF;box-shadow:0 0 4px #00E5FF}</style></head>
-<body><div class="header"><div class="title">${node.title.toUpperCase()}</div><div class="subtitle">${mapTitle} // ${subcategory.title}</div></div>
-<div class="grid">${facts.map(f => `<div class="card"><div class="card-cat">${f.category || ""}</div><div class="card-fact">${f.fact}</div>
-<div class="importance">${[1,2,3,4,5].map(i => `<div class="dot${i <= (f.importance || 3) ? " active" : ""}"></div>`).join("")}</div></div>`).join("")}</div></body></html>`;
+      let info;
+      try { info = JSON.parse(content.replace(/```json|```/g, "").trim()); } catch { info = { headline: node.title, subtitle: node.summary, sections: [{ title: "Overview", icon: "📋", content: content, highlights: [] }], timeline: [], keyFigures: [], pullQuote: "", bottomLine: "", heroStat: null }; }
+      const html = buildInfographicHTML(info, node.title, mapTitle, subcategory.title);
       const blob = new Blob([html], { type: "text/html" });
       const link = document.createElement("a"); link.href = URL.createObjectURL(blob);
       link.download = `${node.title.replace(/\s+/g, "-")}-infographic.html`; link.click();
@@ -716,8 +828,8 @@ INSTRUCTIONS:
                       body: JSON.stringify({ node: { title: `${conn.srcName} ⟷ ${conn.tgtName}`, summary: conn.description, tags: [] }, subcategory: { title: "Cross-Map Connection" }, mapTitle: `${conn.srcMap} ↔ ${conn.tgtMap}`, messages, format: "infographic" }),
                     });
                     const { content } = await res.json();
-                    let facts; try { facts = JSON.parse(content.replace(/```json|```/g, "").trim()); } catch { facts = [{ fact: content, category: "Connection", importance: 5 }]; }
-                    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet"><title>${conn.srcName} ⟷ ${conn.tgtName}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#03080F;color:#c0d8e8;font-family:'Rajdhani',monospace;padding:40px 20px;min-height:100vh}.header{text-align:center;margin-bottom:40px;border-bottom:1px solid rgba(255,0,110,0.2);padding-bottom:20px}.title{font-family:'Orbitron',sans-serif;color:#FF006E;font-size:24px;letter-spacing:2px}.subtitle{color:rgba(192,216,232,0.5);font-size:12px;letter-spacing:2px;margin-top:8px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;max-width:900px;margin:0 auto}.card{background:rgba(255,0,110,0.03);border:1px solid rgba(255,0,110,0.15);padding:20px;position:relative}.card::before{content:'';position:absolute;top:0;left:0;width:12px;height:12px;border-top:1px solid #FF006E;border-left:1px solid #FF006E}.card-cat{font-family:'Orbitron',sans-serif;color:#FF006E;font-size:9px;letter-spacing:2px;margin-bottom:8px;text-transform:uppercase}.card-fact{font-size:15px;line-height:1.6;color:#e0f0ff}</style></head><body><div class="header"><div class="title">${conn.srcName} ⟷ ${conn.tgtName}</div><div class="subtitle">${conn.srcMap} // ${conn.tgtMap}</div></div><div class="grid">${facts.map(f => `<div class="card"><div class="card-cat">${f.category || ""}</div><div class="card-fact">${f.fact}</div></div>`).join("")}</div></body></html>`;
+                    let info; try { info = JSON.parse(content.replace(/```json|```/g, "").trim()); } catch { info = { headline: `${conn.srcName} ⟷ ${conn.tgtName}`, subtitle: conn.description, sections: [{ title: "Overview", icon: "🔗", content: content, highlights: [] }], timeline: [], keyFigures: [], pullQuote: "", bottomLine: "" }; }
+                    const html = buildInfographicHTML(info, `${conn.srcName} ⟷ ${conn.tgtName}`, `${conn.srcMap} ↔ ${conn.tgtMap}`, "Cross-Map Connection");
                     const blob = new Blob([html], { type: "text/html" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
                     a.download = `${conn.srcName}-${conn.tgtName}-infographic.html`; a.click(); URL.revokeObjectURL(a.href);
                   } catch {} finally { setIsExporting(false); setShowExport(false); }
@@ -1446,7 +1558,7 @@ export default function NeuralMapApp() {
           ctx.font = `${level === 0 ? 600 : 500} ${level === 0 ? 11 : level === 1 ? 10 : 9}px ${J.fontDisplay.replace(/'/g, "")}`;
           ctx.textAlign = "center";
           ctx.fillStyle = isHov || isSel ? "#fff" : color;
-          ctx.fillText(id === "master" ? mapData.master.title : "", x, y + r + (level === 0 ? 18 : 14));
+          if (level > 0) ctx.fillText("", x, y + r + 14);
           ctx.globalAlpha = 1;
         }
       }
