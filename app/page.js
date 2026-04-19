@@ -134,8 +134,171 @@ function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
 function heartbeatPulse(t, phase, amplitude) {
   const cycle = (t * 1.2 + phase) % (Math.PI * 2);
   const beat1 = Math.max(0, Math.sin(cycle * 2)) * amplitude;
-  const beat2 = Math.max(0, Math.sin(cycle * 2 + 0.8)) * amplitude * 0.5;
+  const beat2 = Math.max(0, Math.sin(cycle * 2 - 0.3)) * amplitude * 0.6;
   return 1 + beat1 + beat2;
+}
+
+function withAlpha(hex, a) {
+  return hex + Math.round(Math.max(0, Math.min(1, a)) * 255).toString(16).padStart(2, "0");
+}
+
+// ─── PLASMA PARTICLE SYSTEM ─────────────────────────────────────────────────
+
+const plasmaParticles = [];
+function seedPlasmaParticles(count, palette) {
+  plasmaParticles.length = 0;
+  for (let i = 0; i < count; i++) {
+    plasmaParticles.push({
+      x: (Math.random() - 0.5) * 900, y: (Math.random() - 0.5) * 900,
+      vx: (Math.random() - 0.5) * 0.4, vy: (Math.random() - 0.5) * 0.4,
+      targetIdx: 0, life: Math.random(), hue: i % palette.length,
+    });
+  }
+}
+
+function plasmaDrawAmbient(ctx, t, visibleNodes, masterPos) {
+  const palette = HUB_PALETTE;
+  if (plasmaParticles.length === 0) seedPlasmaParticles(240, palette);
+
+  const bgG = ctx.createRadialGradient(masterPos.x, masterPos.y, 60, masterPos.x, masterPos.y, 700);
+  bgG.addColorStop(0, "rgba(0,229,255,0.10)");
+  bgG.addColorStop(0.4, "rgba(191,90,242,0.04)");
+  bgG.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = bgG;
+  ctx.fillRect(masterPos.x - 900, masterPos.y - 900, 1800, 1800);
+
+  if (visibleNodes.length === 0) return;
+  ctx.globalCompositeOperation = "lighter";
+  for (const p of plasmaParticles) {
+    if (Math.random() < 0.004) p.targetIdx = Math.floor(Math.random() * visibleNodes.length);
+    const tgt = visibleNodes[p.targetIdx % visibleNodes.length];
+    if (!tgt) continue;
+    const dx = tgt.x - p.x, dy = tgt.y - p.y;
+    const d = Math.hypot(dx, dy) || 1;
+    p.vx += (dx / d) * 0.02; p.vy += (dy / d) * 0.02;
+    p.vx *= 0.96; p.vy *= 0.96;
+    p.vx += (Math.random() - 0.5) * 0.1; p.vy += (Math.random() - 0.5) * 0.1;
+    p.x += p.vx; p.y += p.vy;
+    p.life += 0.01; if (p.life > 1) p.life = 0;
+    if (d < 18) p.targetIdx = Math.floor(Math.random() * visibleNodes.length);
+    const color = palette[p.hue % palette.length];
+    const alpha = 0.3 + 0.35 * Math.sin(p.life * Math.PI);
+    ctx.fillStyle = withAlpha(color, alpha);
+    ctx.beginPath(); ctx.arc(p.x, p.y, 1.1, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalCompositeOperation = "source-over";
+}
+
+function plasmaDrawNode(ctx, x, y, baseR, color, level, scale, alpha, opts) {
+  const { t = 0, pulsePhase = 0, isHov = false, isSel = false, title = "" } = opts || {};
+  const pulse = heartbeatPulse(t, pulsePhase, level === 0 ? 0.12 : level === 1 ? 0.1 : 0.06);
+  const r = baseR * pulse * scale;
+  if (r < 0.5) return;
+
+  ctx.globalAlpha = alpha;
+
+  // Outer halo
+  const haloR = level === 0 ? r * 7 : level === 1 ? r * 5 : r * 4;
+  const halo = ctx.createRadialGradient(x, y, r * 0.5, x, y, haloR);
+  const haloI = level === 0 ? 0.35 : level === 1 ? 0.5 : 0.55;
+  const boost = (isHov || isSel) ? 1.3 : 1;
+  halo.addColorStop(0, withAlpha(color, haloI * boost));
+  halo.addColorStop(0.35, withAlpha(color, haloI * 0.35 * boost));
+  halo.addColorStop(1, withAlpha(color, 0));
+  ctx.fillStyle = halo;
+  ctx.beginPath(); ctx.arc(x, y, haloR, 0, Math.PI * 2); ctx.fill();
+
+  // Magenta counter-halo for master
+  if (level === 0) {
+    const mh = ctx.createRadialGradient(x, y, r, x, y, r * 6);
+    mh.addColorStop(0, "rgba(255,0,110,0.35)");
+    mh.addColorStop(0.5, "rgba(255,0,110,0.08)");
+    mh.addColorStop(1, "rgba(255,0,110,0)");
+    ctx.fillStyle = mh;
+    ctx.beginPath(); ctx.arc(x, y, r * 6, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Rotating energy arcs
+  if (level <= 1 && scale > 0.4) {
+    const arcCount = level === 0 ? 3 : 2;
+    for (let k = 0; k < arcCount; k++) {
+      const aStart = t * (0.6 + k * 0.35) + pulsePhase + k * 2.1;
+      const aLen = Math.PI * (0.45 + k * 0.2);
+      const ringR = r * (1.7 + k * 0.35);
+      ctx.beginPath(); ctx.arc(x, y, ringR, aStart, aStart + aLen);
+      ctx.strokeStyle = (level === 0 && k === 1) ? "rgba(255,0,110,0.55)" : withAlpha(color, 0.55);
+      ctx.lineWidth = 1 + (level === 0 ? 0.3 : 0);
+      ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(x, y, r * 1.9, 0, Math.PI * 2);
+    ctx.strokeStyle = withAlpha(color, 0.12); ctx.lineWidth = 0.5; ctx.stroke();
+  }
+
+  // Core sphere
+  const core = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r);
+  core.addColorStop(0, "#ffffff");
+  core.addColorStop(0.25, level === 0 ? "#aaf5ff" : withAlpha(color, 1));
+  core.addColorStop(0.65, color);
+  core.addColorStop(1, withAlpha(color, 0.3));
+  ctx.fillStyle = core;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+
+  // Hot spot
+  ctx.shadowColor = color;
+  ctx.shadowBlur = level === 0 ? 24 : level === 1 ? 12 : 6;
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath(); ctx.arc(x, y, r * (level === 0 ? 0.18 : 0.28), 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Hover / select ring
+  if (isSel) { ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 6, 0, Math.PI * 2); ctx.stroke(); }
+  else if (isHov) { ctx.strokeStyle = withAlpha(color, 0.9); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, r + 4, 0, Math.PI * 2); ctx.stroke(); }
+
+  ctx.globalAlpha = 1;
+
+  // Label
+  if (title && scale > 0.5) {
+    ctx.globalAlpha = alpha * Math.min(1, (scale - 0.5) * 4);
+    const fontSize = level === 0 ? 13 : level === 1 ? 10 : 8;
+    const weight = level === 0 ? 800 : level === 1 ? 600 : 500;
+    ctx.font = `${weight} ${fontSize}px Orbitron, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillStyle = (isHov || isSel || level === 0) ? "#ffffff" : color;
+    ctx.shadowColor = color; ctx.shadowBlur = level === 0 ? 18 : level === 1 ? 8 : 4;
+    ctx.fillText(level === 0 ? title : title.toUpperCase(), x, y + r + fontSize + 6);
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  }
+}
+
+function plasmaDrawConnector(ctx, px, py, tx, ty, color, progress, idx, t) {
+  const segs = 20;
+  const dx = tx - px, dy = ty - py;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len, ny = dx / len;
+
+  ctx.strokeStyle = withAlpha(color, 0.28);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let k = 0; k <= segs * progress; k++) {
+    const u = k / segs;
+    const x = px + dx * u, y = py + dy * u;
+    const wave = 5 * Math.sin(u * Math.PI * 3 + t * 2 + idx * 0.7);
+    if (k === 0) ctx.moveTo(x + nx * wave, y + ny * wave);
+    else ctx.lineTo(x + nx * wave, y + ny * wave);
+  }
+  ctx.stroke();
+
+  if (progress > 0.4) {
+    const u = ((t * 0.35 + idx * 0.14) % 1);
+    if (u <= progress) {
+      const x = px + dx * u, y = py + dy * u;
+      const wave = 5 * Math.sin(u * Math.PI * 3 + t * 2 + idx * 0.7);
+      ctx.shadowColor = color; ctx.shadowBlur = 18;
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath(); ctx.arc(x + nx * wave, y + ny * wave, 2.2, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  }
 }
 
 function computeTreeLayout(mapData, w, h) {
@@ -1541,94 +1704,16 @@ export default function NeuralMapApp() {
       const hovId = hoveredNode?.id;
       const selId = selectedNode?.id;
 
-      // ─── Helper: draw a node ───
-      function drawNode(id, x, y, baseR, color, level, scale, alpha) {
-        const pulse = heartbeatPulse(t, layout[id]?.pulsePhase || 0, level === 0 ? 0.2 : level === 1 ? 0.15 : 0.1);
-        const r = baseR * pulse * scale;
-        if (r < 0.5) return;
+      // ─── PLASMA RENDER ───
 
-        const isHov = hovId === id;
-        const isSel = selId === id;
-
-        ctx.globalAlpha = alpha;
-
-        // Outer glow
-        const glowR = level === 0 ? r * 4 : level === 1 ? r * 3 : r * 2.5;
-        const gGrad = ctx.createRadialGradient(x, y, r * 0.5, x, y, glowR);
-        gGrad.addColorStop(0, color + (isHov || isSel ? "40" : "20"));
-        gGrad.addColorStop(1, color + "00");
-        ctx.beginPath(); ctx.arc(x, y, glowR, 0, Math.PI * 2);
-        ctx.fillStyle = gGrad; ctx.fill();
-
-        // Rotating arc ring (master and sub-nodes)
-        if (level <= 1) {
-          const ringR = r * 2.2;
-          ctx.beginPath(); ctx.arc(x, y, ringR, 0, Math.PI * 2);
-          ctx.strokeStyle = color + "15"; ctx.lineWidth = 0.5; ctx.stroke();
-          const arcStart = t * (level === 0 ? 0.8 : 1.2) + (layout[id]?.pulsePhase || 0);
-          ctx.beginPath(); ctx.arc(x, y, ringR, arcStart, arcStart + Math.PI * 0.5);
-          ctx.strokeStyle = color + "45"; ctx.lineWidth = 1.2; ctx.stroke();
-        }
-
-        // Core sphere
-        const cGrad = ctx.createRadialGradient(x, y, 0, x, y, r);
-        cGrad.addColorStop(0, "#fff");
-        cGrad.addColorStop(0.3, color);
-        cGrad.addColorStop(1, color + "60");
-        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fillStyle = cGrad; ctx.fill();
-
-        // Inner glow
-        ctx.shadowColor = color;
-        ctx.shadowBlur = level === 0 ? 16 : level === 1 ? 10 : 6;
-        ctx.beginPath(); ctx.arc(x, y, r * 0.4, 0, Math.PI * 2);
-        ctx.fillStyle = color; ctx.fill();
-        ctx.shadowBlur = 0;
-
-        // Hover/select ring
-        if (isSel) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(x, y, r + 3, 0, Math.PI * 2); ctx.stroke(); }
-        else if (isHov) { ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, r + 2, 0, Math.PI * 2); ctx.stroke(); }
-
-        ctx.globalAlpha = 1;
-
-        // Label below node
-        if (scale > 0.5) {
-          ctx.globalAlpha = alpha * Math.min(1, (scale - 0.5) * 4);
-          ctx.font = `${level === 0 ? 600 : 500} ${level === 0 ? 11 : level === 1 ? 10 : 9}px ${J.fontDisplay.replace(/'/g, "")}`;
-          ctx.textAlign = "center";
-          ctx.fillStyle = isHov || isSel ? "#fff" : color;
-          if (level > 0) ctx.fillText("", x, y + r + 14);
-          ctx.globalAlpha = 1;
-        }
-      }
-
-      // ─── Helper: draw connector ───
-      function drawConnector(px, py, tx, ty, color, progress, idx) {
-        const cx = px + (tx - px) * progress;
-        const cy = py + (ty - py) * progress;
-        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, cy);
-        ctx.strokeStyle = color + "30"; ctx.lineWidth = 1; ctx.stroke();
-
-        // Data pulse dot
-        const dotProgress = (t * 0.3 + idx * 0.5) % 3;
-        if (dotProgress < 1 && progress > 0.5) {
-          const dx = px + (cx - px) * dotProgress;
-          const dy = py + (cy - py) * dotProgress;
-          ctx.beginPath(); ctx.arc(dx, dy, 2, 0, Math.PI * 2);
-          ctx.fillStyle = color + "80"; ctx.fill();
-        }
-      }
+      // Ambient layer (particles + radial wash)
+      plasmaDrawAmbient(ctx, t, visibleNodesRef.current, masterLayout);
 
       // ─── Draw master node (always) ───
       const mx = masterLayout.x;
       const my = masterLayout.y;
-      drawNode("master", mx, my, 20, masterLayout.color, 0, 1, 1);
+      plasmaDrawNode(ctx, mx, my, 20, masterLayout.color, 0, 1, 1, { t, pulsePhase: 0, isHov: hovId === "master", isSel: selId === "master", title: mapData.master.title });
       visibleNodes.push({ id: "master", x: mx, y: my, level: 0, r: 20 });
-
-      // Draw master label
-      ctx.font = `700 11px Orbitron, sans-serif`;
-      ctx.textAlign = "center"; ctx.fillStyle = masterLayout.color;
-      ctx.fillText(mapData.master.title.toUpperCase(), mx, my + 34);
 
       // ─── Draw L2 sub-nodes ───
       const showL2 = state.phase !== "idle";
@@ -1641,18 +1726,9 @@ export default function NeuralMapApp() {
           const sy = my + (sl.y - my) * l2Progress;
           const scale = l2Progress;
 
-          drawConnector(mx, my, sx, sy, sl.color, l2Progress, i);
-          drawNode(sub.id, sx, sy, 12, sl.color, 1, scale, l2Progress);
+          plasmaDrawConnector(ctx, mx, my, sx, sy, sl.color, l2Progress, i, t);
+          plasmaDrawNode(ctx, sx, sy, 12, sl.color, 1, scale, l2Progress, { t, pulsePhase: sl.pulsePhase, isHov: hovId === sub.id, isSel: selId === sub.id, title: sub.title });
           visibleNodes.push({ id: sub.id, x: sx, y: sy, level: 1, r: 12 * scale, subIndex: i });
-
-          // Sub-node label
-          if (l2Progress > 0.5) {
-            ctx.globalAlpha = Math.min(1, (l2Progress - 0.5) * 4);
-            ctx.font = `500 9px Orbitron, sans-serif`;
-            ctx.textAlign = "center"; ctx.fillStyle = sl.color;
-            ctx.fillText(sub.title.toUpperCase(), sx, sy + 12 * scale * heartbeatPulse(t, sl.pulsePhase, 0.15) + 16);
-            ctx.globalAlpha = 1;
-          }
         });
       }
 
@@ -1676,18 +1752,9 @@ export default function NeuralMapApp() {
             const ty = parentY + (tl.y - parentY) * l3Progress;
             const scale = l3Progress;
 
-            drawConnector(parentX, parentY, tx, ty, tl.color, l3Progress, j + 100);
-            drawNode(topic.id, tx, ty, 7, tl.color, 2, scale, l3Progress);
+            plasmaDrawConnector(ctx, parentX, parentY, tx, ty, tl.color, l3Progress, j + 100, t);
+            plasmaDrawNode(ctx, tx, ty, 7, tl.color, 2, scale, l3Progress, { t, pulsePhase: tl.pulsePhase, isHov: hovId === topic.id, isSel: selId === topic.id, title: topic.title });
             visibleNodes.push({ id: topic.id, x: tx, y: ty, level: 2, r: 7 * scale, subId: state.expandedSubId, topicIndex: j });
-
-            // Topic label
-            if (l3Progress > 0.6) {
-              ctx.globalAlpha = Math.min(1, (l3Progress - 0.6) * 5);
-              ctx.font = `400 8px Orbitron, sans-serif`;
-              ctx.textAlign = "center"; ctx.fillStyle = tl.color + "CC";
-              ctx.fillText(topic.title, tx, ty + 7 * scale * heartbeatPulse(t, tl.pulsePhase, 0.1) + 13);
-              ctx.globalAlpha = 1;
-            }
           });
         }
       }
