@@ -3,3 +3,5 @@ node_modules/
 .env.local
 .vercel
 Gemini_Generated_Image_*
+
+.buildtrace-config.json
